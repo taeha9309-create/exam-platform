@@ -32,6 +32,9 @@ GitHub 이슈 = 작업 지시서. 양식: `.github/ISSUE_TEMPLATE/task.md`.
 3. 실행 가능한 작업을 Operator에게 할당(동시 최대 3, 같은 파일을 건드리는 작업은 동시에 맡기지 않음, `shared/`·`server/src/app.ts` 변경은 병합 때 Coordinator만).
 4. Operator 보고 확인 → 브랜치 push → PR 생성(템플릿 채움) → Reviewer 호출 → 판정을 PR 댓글로 게시.
 5. 병합 조건: CI 통과 + Reviewer `APPROVED`(critical은 Opus 판정) + 보호 문서 변경 없음(있으면 사용자가 `문서변경-승인` 라벨). 조건을 만족하면 `gh pr merge --squash --delete-branch`를 요청(사용자 승인 창이 뜬다).
+   - main은 "최신 main 기준" 검사가 필수(strict)다. 병렬 PR은 앞 PR이 병합되면 `gh pr update-branch`로 갱신하고 CI를 다시 통과해야 한다.
+   - `중요-리뷰` PR의 승인 댓글은 **커밋 SHA에 묶인다.** 따라서 순서는 ① `update-branch`로 최신화 → ② CI 통과 → ③ Reviewer 호출·승인 댓글 → ④ 병합. 승인 후 브랜치를 갱신하면 승인이 무효가 되어 재리뷰가 필요하다.
+   - Coordinator가 직접 하는 작업(계획 0 Task 1~3, 계획 1 Task 1·2·17a)도 예외 없이 작업 브랜치 → PR → 필수 검사로 병합한다.
 6. 병합 후 이슈 `상태:완료`, 진행 기록 갱신.
 7. **사용자에게 작업별 설명**: 무엇을 구현했고, 왜 그 기술을 택했는지(Operator 보고의 "기술 선택과 이유" 정리).
 8. 목표 확인: 현재 계획의 모든 이슈가 `상태:완료`이면 루프 종료.
