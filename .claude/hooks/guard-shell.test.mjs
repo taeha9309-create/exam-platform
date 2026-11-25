@@ -46,6 +46,16 @@ test('브랜치 보호 우회 거부', () => {
   assert.equal(d('gh pr edit 3 --add-label 문서변경-승인'), 'deny');
 });
 
+test('전체 경로·확장자로 실행해도 같은 규칙 적용 (PR #1에서 발견한 구멍)', () => {
+  assert.equal(d('"/c/Program Files/GitHub CLI/gh.exe" pr merge 1 --squash'), 'ask');
+  assert.equal(d('"C:\\Program Files\\GitHub CLI\\gh.exe" pr merge 1 --admin'), 'deny');
+  assert.equal(d('GH="/c/Program Files/GitHub CLI/gh.exe"; "$GH" pr list'), 'allow');
+  assert.equal(d('GH=/x/gh.exe; "$GH" pr merge 3 --squash'), 'ask');
+  assert.equal(d('gh api -X PUT repos/o/r/pulls/3/merge'), 'deny');
+  assert.equal(d('/usr/bin/git push origin main'), 'deny');
+  assert.equal(d('"C:/Program Files/Git/cmd/git.exe" push -f'), 'deny');
+});
+
 test('작업 브랜치 push 허용, 병합은 승인 요청', () => {
   assert.equal(d('git push -u origin task/plan1-t3'), 'allow');
   assert.equal(d('gh pr merge 12 --squash --delete-branch'), 'ask');
