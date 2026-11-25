@@ -1,0 +1,94 @@
+name: ci
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # 보호 문서·하네스 설정 변경은 사용자가 `docs-approved` 라벨을 붙인 PR에서만 통과.
+  # 로컬 훅이 못 잡는 간접 수정(스크립트 등)을 서버 쪽에서 잡는 마지막 방어선.
+  protected-files:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check protected paths
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'docs-approved') }}
+        run: |
+          changed=$(git diff --name-only "$BASE" "$HEAD")
+          hits=$(echo "$changed" | grep -E '^(docs/PRD\.md|docs/SPEC\.md|docs/DECISIONS\.md|CLAUDE\.md|\.claude/(settings\.json|hooks/|agents/)|\.github/workflows/)' || true)
+          if [ -n "$hits" ]; then
+            echo "보호 파일 변경:"; echo "$hits"
+            if [ "$APPROVED" != "true" ]; then
+              echo "::error::보호 파일이 변경되었습니다. 사용자가 'docs-approved' 라벨을 붙여야 통과합니다."
+              exit 1
+            fi
+          fi
+          echo "OK"
+
+  # critical-review 라벨이 있는 PR은 현재 커밋에 대한 Reviewer 승인 댓글이 있어야 통과.
+  # 같은 계정이 댓글을 쓸 수 있으므로 위조 방지는 아님(사람의 병합 승인이 최종 관문).
+  review-gate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require reviewer approval for critical PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CRITICAL: ${{ contains(github.event.pull_request.labels.*.name, 'critical-review') }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$CRITICAL" != "true" ]; then echo "critical 아님"; exit 0; fi
+          if gh api "repos/$REPO/issues/$PR/comments" --paginate --jq '.[].body' | grep -q "harness-review: APPROVED sha=$SHA"; then
+            echo "현재 커밋($SHA)에 대한 Reviewer 승인 확인"
+          else
+            echo "::error::critical PR: 현재 커밋 $SHA 에 대한 'harness-review: APPROVED' 댓글이 없습니다."
+            exit 1
+          fi
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: exam
+          POSTGRES_PASSWORD: exam
+          POSTGRES_DB: exam_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U exam" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://exam:exam@localhost:5432/exam_test
+      JWT_SECRET: ci-only-not-secret
+    steps:
+      - uses: actions/checkout@v4
+      - name: Harness guard tests
+        run: node --test .claude/hooks/guard-shell.test.mjs
+      - uses: actions/setup-node@v4
+        if: hashFiles('package-lock.json') != ''
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        if: hashFiles('package-lock.json') != ''
+        run: npm ci
+      - name: Typecheck
+        if: hashFiles('package-lock.json') != ''
+        run: npm run typecheck --if-present
+      - name: Test
+        if: hashFiles('package-lock.json') != ''
+        run: npm test --if-present

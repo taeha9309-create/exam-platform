@@ -1,0 +1,33 @@
+# 의존성·빌드 산출물
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# 테스트 산출물
+playwright-report/
+test-results/
+e2e/.auth/
+
+# 환경변수와 비밀값 (예시 파일만 커밋)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Claude Code 개인 설정·작업 공간 (공유 설정 .claude/settings.json 은 커밋)
+.claude/settings.local.json
+.claude/worktrees/
+
+# Superpowers 진행 기록 작업 공간 (로컬 복구용, ADR-011)
+.superpowers/
+
+# 로그·OS·편집기
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
