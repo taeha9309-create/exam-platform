@@ -1,7 +1,8 @@
 # 개발 스펙 — 강의실 시험 무결성 플랫폼
 
 - 문서 버전: v1.3 (2026-11-25)
-- 기준 문서: `docs/PRD.md` v1.1 (승인됨)
+- 기준 문서: `docs/PRD.md` v1.3 (승인됨)
+- 상태: **v1.3 승인됨 (2026-11-25)**
 - 이 문서는 **구현의 기준**이다. 구현 중 스펙과 다르게 해야 할 일이 생기면 먼저 이 문서를 고치고(버전 올림), 그 이유를 `docs/DECISIONS.md`에 남긴 뒤 구현한다.
 - 표기: `F-xx` 기능, `AC` 완료 조건(Acceptance Criteria), `P-xx` 학생 화면, `S-xx` 교수자 화면
 
@@ -30,7 +31,7 @@
 | 구성 | 선택 | 비고 |
 |---|---|---|
 | 프런트엔드 | React 18 + Vite + TypeScript, React Router | 화면 문구는 `client/src/copy/ko.ts` 한 파일에서 관리 |
-| 서버 | Node.js 20 LTS + TypeScript, Express, Socket.IO 4 | 입력 검증 zod |
+| 서버 | Node.js 24 LTS + TypeScript, Express, Socket.IO 4 | 입력 검증 zod |
 | DB | PostgreSQL 16, Prisma ORM | |
 | 공유 타입 | `shared/` 패키지 (이벤트 이름, 페이로드 타입, 상수) | 클라이언트와 서버가 같은 정의 사용 |
 | 테스트 | Vitest(단위·통합), supertest(API), Playwright(핵심 흐름 E2E) | |
