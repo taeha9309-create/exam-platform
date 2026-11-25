@@ -1,0 +1,6 @@
+{
+  "name": "detection-lab",
+  "private": true,
+  "type": "module",
+  "description": "감지 실험 페이지(버리는 코드). 제품 코드(client/, server/)와 공유하지 않는다."
+}
