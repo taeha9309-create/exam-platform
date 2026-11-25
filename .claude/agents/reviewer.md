@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: 작업 하나의 변경분이 SPEC·ADR·작업 지시서를 지키는지, 코드 품질과 보안 문제가 없는지 검토한다. 코드를 고치지 않는다. 중요 작업(critical-review)의 보안 검토는 호출 시 model=opus로 바꾼다.
+description: 작업 하나의 변경분이 SPEC·ADR·작업 지시서를 지키는지, 코드 품질과 보안 문제가 없는지 검토한다. 코드를 고치지 않는다. 중요 작업(중요-리뷰)의 보안 검토는 호출 시 model=opus로 바꾼다.
 model: sonnet
 tools: Read, Glob, Grep, Bash
 maxTurns: 40

@@ -43,7 +43,7 @@ test('브랜치 보호 우회 거부', () => {
   assert.equal(d('gh api repos/o/r/branches/main/protection'), 'deny');
   assert.equal(d('bash scripts/github-setup.sh'), 'deny');
   assert.equal(d('git commit --no-verify -m x'), 'deny');
-  assert.equal(d('gh pr edit 3 --add-label docs-approved'), 'deny');
+  assert.equal(d('gh pr edit 3 --add-label 문서변경-승인'), 'deny');
 });
 
 test('작업 브랜치 push 허용, 병합은 승인 요청', () => {
