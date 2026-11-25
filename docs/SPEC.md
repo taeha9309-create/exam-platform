@@ -1,6 +1,6 @@
 # 개발 스펙 — 강의실 시험 무결성 플랫폼
 
-- 문서 버전: v1.1 (2026-11-23)
+- 문서 버전: v1.2 (2026-11-25)
 - 기준 문서: `docs/PRD.md` v1.1 (승인됨)
 - 이 문서는 **구현의 기준**이다. 구현 중 스펙과 다르게 해야 할 일이 생기면 먼저 이 문서를 고치고(버전 올림), 그 이유를 `docs/DECISIONS.md`에 남긴 뒤 구현한다.
 - 표기: `F-xx` 기능, `AC` 완료 조건(Acceptance Criteria), `P-xx` 학생 화면, `S-xx` 교수자 화면
@@ -9,6 +9,7 @@
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | v1.0 | 2026-11-23 | 최초 작성 |
+| v1.2 | 2026-11-25 | 위반 5회 자동 잠금 추가(5.7), 신호 끊김·누락을 위반에서 제외하고 `WARN`으로 하향(D-019, D-020) |
 | v1.1 | 2026-11-23 | 모든 교수자 계정의 시험 공유 접근(D-016), 실험 후보 "커서 이탈 시 화면 가림" 추가(5.6, 8장, D-018) |
 
 ---
@@ -71,7 +72,7 @@
 | `WAITING` | 시험 시작 후 준비 완료 | `ACTIVE` | 대기실에 먼저 들어온 학생은 지각 아님 |
 | `PENDING_APPROVAL` | 감독관 승인 | `WAITING` → 준비 완료 시 `ACTIVE` | |
 | `PENDING_APPROVAL` | 감독관 거절 | `REJECTED` | 종착 |
-| `ACTIVE` | 감독관 일시정지 | `PAUSED` | **시간은 계속 흐름** |
+| `ACTIVE` | 감독관 일시정지 또는 위반 5회 자동 잠금(5.7) | `PAUSED` | **시간은 계속 흐름**. 답안 입력·저장 불가 |
 | `PAUSED` | 감독관 재개 | `ACTIVE` | |
 | `ACTIVE`/`PAUSED`/`WAITING` | 학생 제출 / 마감 시각 도달 / 시험 종료 | `SUBMITTED` | `submitReason`: `STUDENT`·`TIMEOUT`·`EXAM_ENDED` |
 | `ACTIVE`/`PAUSED` | 감독관 종료 | `TERMINATED` | 그때까지의 답안으로 채점 |
@@ -125,10 +126,10 @@ Prisma 스키마의 기준. 필드 이름은 그대로 사용한다.
 | **Exam** | id, ownerId→Staff, examCode(unique, 8자), title, instructions, durationMin, status(`DRAFT`·`OPEN`·`RUNNING`·`ENDED`), passcode(nullable, 6자리), lockNewEntry(bool, 기본 false), pasteMode(`RECORD`·`BLOCK`, 기본 `RECORD`), shuffle(bool, 기본 true), seatRows, seatCols, startedAt, endsAt, endedAt, createdAt | |
 | **Question** | id, examId, position, type(`MCQ`·`ESSAY`), prompt, points(int ≥1), choices(Json: `[{id, text}]`, MCQ만 2~6개), correctChoiceId(MCQ만) | |
 | **RosterEntry** | id, examId, studentNo, name | unique(examId, studentNo) |
-| **Attempt** | id, examId, rosterEntryId(unique), state, sessionTokenHash, pendingTokenHash(nullable), isLate, seatNo(nullable), consentAt, consentDeclined(bool), envBrowser, envIsExtended, envCheckedAt, questionOrder(Json: questionId[]), choiceOrders(Json: {questionId: choiceId[]}), extraSeconds(int, 기본 0), lastSeq(int), lastHeartbeatAt, connected(bool), submittedAt, submitReason, surveyDone(bool), unackedSeverity(`NONE`·`INFO`·`WARN`·`ALERT`), createdAt | |
+| **Attempt** | id, examId, rosterEntryId(unique), state, sessionTokenHash, pendingTokenHash(nullable), isLate, seatNo(nullable), consentAt, consentDeclined(bool), envBrowser, envIsExtended, envCheckedAt, questionOrder(Json: questionId[]), choiceOrders(Json: {questionId: choiceId[]}), extraSeconds(int, 기본 0), lastSeq(int), lastHeartbeatAt, violationCount(int, 기본 0), pausedAt(nullable), connected(bool), submittedAt, submitReason, surveyDone(bool), unackedSeverity(`NONE`·`INFO`·`WARN`·`ALERT`), createdAt | |
 | **Answer** | id, attemptId, questionId, choiceId(nullable), text(nullable, 최대 5000자), rev(int), savedAt, awardedPoints(nullable) | unique(attemptId, questionId) |
 | **Signal** | id, attemptId, type, severity(`INFO`·`WARN`·`ALERT`), seq(nullable), clientAt(nullable), receivedAt, durationMs(nullable), questionId(nullable), meta(Json) | |
-| **ProctorAction** | id, attemptId, staffId, type, reason, payload(Json), createdAt | |
+| **ProctorAction** | id, attemptId, staffId(nullable: 시스템 조치), type, reason, payload(Json), createdAt | |
 | **SurveyResponse** | id, examId, difficulty(1~5, nullable), comment(nullable, 최대 1000자) | **Attempt와 연결하지 않음, 시각도 저장하지 않음**(익명) |
 
 - 문항·보기 순서는 응시 생성 시 계산해 `questionOrder`·`choiceOrders`에 저장한다(`shuffle=false`면 원래 순서). 재접속해도 같은 순서.
@@ -148,8 +149,8 @@ Prisma 스키마의 기준. 필드 이름은 그대로 사용한다.
 | `MULTI_MONITOR` | 클라이언트 | 환경 점검 시 `screen.isExtended === true` | `WARN` |
 | `DISCONNECT` | 서버 | 응시 중 소켓 끊김 후 10초 내 재연결 없음 | `WARN` |
 | `RECONNECT` | 서버 | 끊김 후 재연결. `meta.offlineMs` | `INFO` |
-| `HEARTBEAT_GAP` | 서버 | 소켓은 연결돼 있으나 하트비트 15초 이상 없음 | `ALERT` |
-| `SEQ_GAP` | 서버 | 수신 seq가 `lastSeq + 1`보다 큼(중간 메시지 누락). `meta: {expected, got}` | `ALERT` |
+| `HEARTBEAT_GAP` | 서버 | 소켓은 연결돼 있으나 하트비트 15초 이상 없음. 화면 문구: "신호 지연 (네트워크 문제 또는 브라우저 이상)" | `WARN` |
+| `SEQ_GAP` | 서버 | 수신 seq가 `lastSeq + 1`보다 큼(중간 메시지 누락). `meta: {expected, got}`. 화면 문구: "신호 누락 (네트워크 문제 또는 브라우저 이상)" | `WARN` |
 
 - 이탈 중 전송이 막히면 복귀 후 `LEAVE`를 전송한다. 서버는 `LEAVE_START` 수신 시각과 `LEAVE` 수신 시각 차이를 `meta.serverDurationMs`로 함께 저장한다(클라이언트 시계 조작 대비 교차 확인).
 - 0단계 실험을 통과한 신호는 이 표에 행을 추가하는 방식으로 스펙을 개정한 뒤 구현한다.
@@ -169,7 +170,7 @@ Prisma 스키마의 기준. 필드 이름은 그대로 사용한다.
 - 감독관이 [확인]을 누르면 `unackedSeverity = NONE`(조치 기록 `ACK`, 사유 불필요).
 
 ### 5.5 네트워크 장애 묶음 표시
-- 같은 시험에서 **10초 안에 3명 이상 또는 응시 인원의 30% 이상**이 `DISCONNECT`되면 대시보드 상단에 "네트워크 장애 의심 (N명)" 배너를 띄우고, 해당 `DISCONNECT` 신호들은 좌석 색을 올리지 않는다(`unackedSeverity` 미반영). 신호 자체는 저장한다.
+- 같은 시험에서 **10초 안에 3명 이상 또는 응시 인원의 30% 이상**이 `DISCONNECT`·`HEARTBEAT_GAP`·`SEQ_GAP` 중 하나를 받으면 대시보드 상단에 "네트워크 장애 의심 (N명)" 배너를 띄우고, 해당 신호들은 좌석 색을 올리지 않는다(`unackedSeverity` 미반영). 신호 자체는 저장한다.
 
 ### 5.6 실험 후보: 커서 이탈 시 화면 가림 (`POINTER_LEAVE`) — 0단계 실험 후 채택 여부 결정
 - 동작(채택 시):
@@ -180,6 +181,20 @@ Prisma 스키마의 기준. 필드 이름은 그대로 사용한다.
 - 알려진 한계: Alt+Tab 등 키보드 전환은 커서가 움직이지 않음(→ `LEAVE`가 담당). 두 번째 모니터를 눈으로만 읽는 경우는 잡지 못함.
 - 오탐 우려(실험에서 측정): 터치패드로 커서가 가장자리로 밀림, 전체화면 상단 브라우저 안내 영역, 브라우저 기본 팝업(`<select>` 등). → 1차 구현은 브라우저 기본 팝업 요소를 쓰지 않는다.
 - 채택되면 5.1 표에 `POINTER_LEAVE` 행을 추가하고 F-12 완료 조건에 반영한다(스펙 버전 올림).
+
+### 5.7 위반 카운트와 자동 잠금
+- **위반으로 세는 신호** (모두 1건당 1회):
+  - `LEAVE` 중 `durationMs ≥ 3000`
+  - `FULLSCREEN_EXIT`
+  - `PASTE`, `DROP` (차단된 시도 포함)
+  - `POINTER_LEAVE` 중 `durationMs ≥ 3000` (5.6이 채택될 경우)
+- **세지 않는 신호**: 3초 미만 이탈, `LEAVE_START`, `DISCONNECT`, `RECONNECT`, `HEARTBEAT_GAP`, `SEQ_GAP`(네트워크와 구분 불가), `MULTI_MONITOR`(시험 전 점검 기록).
+- 위반은 `ACTIVE` 상태에서 발생한 신호만 센다(대기·일시정지 중 제외).
+- 서버가 `Attempt.violationCount`를 올리고 학생에게 `violation:counted { count, limit: 5, type }`을 보낸다. 학생 화면에 "위반 3/5: 전체화면 해제" 알림을 띄운다.
+- **자동 잠금**: `violationCount`가 5의 배수(5, 10, 15…)가 되는 순간 서버가 응시를 `PAUSED`로 바꾸고 `ProctorAction { type: 'AUTO_PAUSE', staffId: null, reason: '시스템 자동 일시정지(위반 N회)' }`를 기록한다. 대시보드 좌석은 빨강 + 잠금 표시.
+- 잠금 해제는 감독관의 `RESUME`으로만 가능하다. 카운트는 초기화하지 않는다.
+- 위반 기준 5회는 모든 시험에 고정(시험별 변경은 2차).
+- 잠긴 동안에도 시간은 흐른다(D-014). 감독관 `RESUME` 화면에 "잠겨 있던 시간 n분 추가" 버튼을 함께 표시한다(n = `pausedAt`부터 지금까지를 분 단위 올림). 누르면 `RESUME`과 `ADD_TIME`이 함께 기록된다.
 
 ## 6. 기능 명세와 완료 조건
 
@@ -249,7 +264,7 @@ Prisma 스키마의 기준. 필드 이름은 그대로 사용한다.
   - [ ] 같은 IP에서 1분 안에 11번째 실패 시도는 429로 거부된다.
 
 ### F-08 사전 고지·동의
-- P-03에 고지 내용 표시: 수집 항목(학번·이름, 좌석, 화면 이탈·전체화면 해제·붙여넣기 등 행동 기록, 답안, 감독관 조치 기록), 이용 목적, 보관 기간(행동·조치 기록 시험 종료 후 90일), "이 서비스는 AI 사용 여부를 판정하지 않으며, 기록은 감독관의 확인 자료로만 쓰입니다", 붙여넣기 모드 안내.
+- P-03에 고지 내용 표시: 수집 항목(학번·이름, 좌석, 화면 이탈·전체화면 해제·붙여넣기 등 행동 기록, 답안, 감독관 조치 기록), 이용 목적, 보관 기간(행동·조치 기록 시험 종료 후 90일), "이 서비스는 AI 사용 여부를 판정하지 않으며, 기록은 감독관의 확인 자료로만 쓰입니다", 붙여넣기 모드 안내, **"위반(3초 이상 화면 이탈, 전체화면 해제, 붙여넣기 시도)이 5회가 되면 화면이 잠기며 감독관만 해제할 수 있습니다"**.
 - [동의하고 계속] / [동의하지 않음]. 동의하지 않으면 "동의하지 않으면 응시할 수 없습니다. 감독관에게 문의하세요."와 [다시 보기] 버튼, `consentDeclined=true`가 대시보드에 표시.
 - **AC**
   - [ ] 동의하지 않으면 다음 단계로 갈 수 없고, 대시보드 해당 학생에 "동의 거부"가 보인다.
@@ -280,7 +295,7 @@ Prisma 스키마의 기준. 필드 이름은 그대로 사용한다.
 - 남은 시간 표시는 서버가 보낸 `deadline`과 `serverNow`로 계산한 오프셋 기준.
 - 자동 저장: 답안 변경 후 1초 디바운스 + 최소 5초마다 미저장분 전송(`answer:save`). 서버 응답(ack)의 `savedAt`을 "저장됨 14:03:21"로 표시. 미저장 답안은 `localStorage`에도 보관.
 - 서버는 같은 문항에 대해 `rev`가 저장된 값보다 작으면 무시(오래된 저장 덮어쓰기 방지).
-- 상단 고정 표시: "기록 중 · 이 시험은 화면 이탈과 붙여넣기 등을 기록합니다".
+- 상단 고정 표시: "기록 중 · 이 시험은 화면 이탈과 붙여넣기 등을 기록합니다"와 위반 카운터 **"위반 n/5"**.
 - [제출]: 미응답 문항 수를 보여주는 확인 대화상자 후 제출. 마감 시 자동 제출.
 - 문항 내용은 상태가 `ACTIVE`일 때만 API로 내려준다. 학생에게 `correctChoiceId`는 절대 내려주지 않는다.
 - **AC**
@@ -299,7 +314,10 @@ Prisma 스키마의 기준. 필드 이름은 그대로 사용한다.
   - [ ] Alt+Tab으로 다른 앱으로 갔다가 돌아오면 `LEAVE`(`cause=blur`)가 기록된다.
   - [ ] ESC로 전체화면을 해제하면 문항이 가려지고 `FULLSCREEN_EXIT`가 기록된다.
   - [ ] `BLOCK` 모드에서 붙여넣기를 하면 입력되지 않고 `PASTE(blocked=true)`가 기록된다.
-  - [ ] 개발자 도구에서 소켓 전송을 막아 하트비트가 15초 이상 끊기면 `HEARTBEAT_GAP`(`ALERT`)이 기록된다.
+  - [ ] 개발자 도구에서 소켓 전송을 막아 하트비트가 15초 이상 끊기면 `HEARTBEAT_GAP`(`WARN`)이 기록되고, 위반 카운터는 늘지 않는다.
+  - [ ] 3초 이상 이탈을 5회 하면 5번째 복귀 직후 문항이 가려지고 입력이 막히며, 대시보드 좌석이 빨강 + 잠금으로 바뀐다.
+  - [ ] 위반이 늘 때마다 학생 화면 카운터와 알림이 갱신된다("위반 n/5").
+  - [ ] 2초짜리 이탈과 네트워크 끊김은 카운터를 올리지 않는다.
 
 ### F-13 감독 대시보드 (S-04)
 - 상단: 시험 상태, 남은 시간, 비밀번호(크게 보기), [시험 시작]/[시험 종료], [신규 입장 차단], 입장 현황 N/M, 네트워크 장애 배너.
@@ -330,11 +348,12 @@ Prisma 스키마의 기준. 필드 이름은 그대로 사용한다.
 |---|---|---|
 | `WARN` | 학생 화면에 메시지 표시(학생이 [확인]을 눌러야 닫힘) | 메시지가 곧 사유(필수) |
 | `PAUSE` | `ACTIVE`→`PAUSED`, 학생 화면 잠금. 시간은 계속 흐름 | 필수 |
-| `RESUME` | `PAUSED`→`ACTIVE` | 필수 |
+| `RESUME` | `PAUSED`→`ACTIVE`. 자동 잠금 해제도 이것으로만 가능. "잠겨 있던 시간 n분 추가" 버튼 함께 표시(5.7) | 필수 |
 | `TERMINATE` | →`TERMINATED`, 확인 대화상자 | 필수 |
 | `ADD_TIME` | `extraSeconds += 분×60` (1~60분) | 필수 |
 | `SEAT_CHANGE` | 좌석 번호 수정 | 필수 |
 | `ACK` | `unackedSeverity=NONE` | 불필요 |
+| `AUTO_PAUSE` | 시스템이 기록(5.7). 감독관이 실행하는 조치 아님 | 시스템 문구 |
 - 사유 입력란에는 빠른 선택 버튼 제공(예: "현장 확인 결과 문제 없음", "본인 요청", "현장 확인 후 경고").
 - 모든 조치는 `ProctorAction`(staffId, type, reason, payload, createdAt)으로 저장되고 학생 상세 패널에 표시된다.
 - **AC**
@@ -343,6 +362,7 @@ Prisma 스키마의 기준. 필드 이름은 그대로 사용한다.
   - [ ] `PAUSE` 중 학생은 문항을 볼 수 없고 답안 저장이 거부된다. `RESUME` 후 이어서 응시한다.
   - [ ] `ADD_TIME` 10분 후 그 학생의 남은 시간만 10분 늘어난다.
   - [ ] 사유 없이 `PAUSE`를 요청하면 400.
+  - [ ] 자동 잠금된 학생을 [재개] + "잠겨 있던 시간 추가"로 풀면 `RESUME`과 `ADD_TIME`이 모두 기록되고 그 학생의 마감이 늘어난다.
 
 ### F-17 채점·결과 (S-06)
 - 객관식: 제출 시 자동 채점(정답이면 배점, 아니면 0).
@@ -416,10 +436,11 @@ Prisma 스키마의 기준. 필드 이름은 그대로 사용한다.
 | 학생→서버 | `hb` | `{ seq }` | 5.2 |
 | 학생→서버 | `signal` | `{ seq, type, clientAt, durationMs?, questionId?, meta }` | 5.1 |
 | 학생→서버 | `answer:save` | `{ questionId, choiceId?, text?, rev }` → ack `{ ok, savedAt }` | F-11 |
-| 서버→학생 | `attempt:state` | `{ state, deadline, serverNow, extraSeconds }` | 상태 변경마다 |
+| 서버→학생 | `attempt:state` | `{ state, deadline, serverNow, extraSeconds, violationCount }` | 상태 변경마다 |
 | 서버→학생 | `exam:started` | `{ endsAt, serverNow }` | F-06 |
 | 서버→학생 | `waiting:count` | `{ ready, total }` | F-10 |
 | 서버→학생 | `proctor:warning` | `{ message }` | F-16 |
+| 서버→학생 | `violation:counted` | `{ count, limit, type }` | 5.7 |
 | 서버→학생 | `session:revoked` | `{}` | F-07 |
 | 교수자→서버 | `dashboard:join` | `{ examId }` → ack `dashboard:snapshot` | F-13 |
 | 서버→교수자 | `dashboard:snapshot` | `{ exam, attempts[], pendingApprovals[], networkIncident? }` | F-13 |
@@ -455,4 +476,5 @@ Prisma 스키마의 기준. 필드 이름은 그대로 사용한다.
 - 화면 공유 캡처: 새 신호 `SCREEN_SHARE_STOPPED`, 새 모델 `Capture`, 파일 저장소(R2).
 - 작성 과정 기록: 새 모델 `AnswerEvent`(answerId, at, delta).
 - 문제 풀: `Question.poolId`, 응시 생성 시 추출.
-- 자동 종료: `Exam.autoTerminate`, 5.1의 severity 집계 규칙.
+- 자동 종료: `Exam.autoTerminate`, 5.7의 위반 카운트 재사용.
+- 위반 기준 횟수 시험별 설정: `Exam.violationLimit`.
