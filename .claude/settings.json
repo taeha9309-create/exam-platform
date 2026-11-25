@@ -8,8 +8,7 @@
       "Edit(/.claude/settings.json)",
       "Edit(/.claude/hooks/**)",
       "Edit(/.claude/agents/**)",
-      "Edit(/.github/workflows/**)",
-      "Bash(gh pr merge:*)"
+      "Edit(/.github/workflows/**)"
     ],
     "deny": [
       "Read(**/.env)",
@@ -21,7 +20,7 @@
       "Read(**/*.key)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
-      "Bash(gh pr merge --admin:*)"
+      "Bash(gh pr merge:*)"
     ]
   },
   "env": {

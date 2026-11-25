@@ -75,7 +75,8 @@ ${runCmds.length ? '```\n' + [...new Set(runCmds)].join('\n') + '\n```' : ''}
 - 묶음: ${a.group} (${a.mode}) · 담당: ${a.coordinator ? 'Coordinator 직접' : 'Operator'}
 - Operator 모델: ${a.model} · Reviewer: ${a.critical ? 'opus (중요-리뷰)' : 'sonnet'}
 `;
-  const labels = ['상태:준비', `계획-${planNo}`, `모델:${a.model}`];
+  // 상태 라벨은 붙이지 않는다(라벨 없음 = 선행 작업 대기). 시작 가능해지면 Coordinator가 `상태:준비`를 붙인다.
+  const labels = [`계획-${planNo}`, `모델:${a.model}`];
   if (a.critical) labels.push('중요-리뷰');
   if (/client\//.test(block(sec, 'Files'))) labels.push('영역:클라이언트');
   if (/server\/|prisma/.test(block(sec, 'Files'))) labels.push('영역:서버');
