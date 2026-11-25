@@ -22,7 +22,8 @@ for (const line of text.split('\n')) {
   }
 }
 
-const sections = text.split(/\n(?=### Task )/).filter((s) => s.startsWith('### Task '));
+// 마지막 작업 뒤의 "## ..." 절(실행 순서 등)이 섞이지 않도록 작업 섹션을 다음 "## " 제목에서 자른다
+const sections = text.split(/\n(?=### Task )/).filter((s) => s.startsWith('### Task ')).map((s) => s.split(/\n## /)[0]);
 const specLine = (text.match(/\*\*Spec:\*\*\s*(.+)/) || [])[1] || '';
 
 function block(sec, header) {
