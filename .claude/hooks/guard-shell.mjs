@@ -26,18 +26,20 @@ const WRITE_HINTS = [
 const DENY_RULES = [
   { re: /\bgit\s+push\b[^\n]*(\s--force\b|\s-f\b|--force-with-lease)/, why: '강제 push는 금지입니다.' },
   { re: /\bgit\s+push\b[^\n]*(\s|:)(main|master)(\s|$)/, why: 'main 브랜치 직접 push는 금지입니다. 작업 브랜치와 PR을 쓰세요.' },
-  { re: /\bpr\s+merge\b[^\n]*--admin/, why: '관리자 권한 병합(--admin)은 금지입니다.' },
-  { re: /\bpulls\/\d+\/merge\b/, why: 'API로 직접 병합하는 것은 금지입니다. gh pr merge(승인 창)를 쓰세요.' },
+  // 병합은 사용자만 한다(D-023). auto 모드에서는 'ask'가 사람에게 묻지 않으므로 'deny'로 막는다.
+  // 실행 파일 이름이 아니라 동작을 본다: "$GH" pr merge, 자동 병합(--auto), REST·GraphQL 병합 모두.
+  { re: /\bpr\s+merge\b/, why: 'PR 병합은 사용자만 합니다. 병합 준비 완료를 보고하고 기다리세요.' },
+  { re: /\bpulls\/\d+\/merge\b/, why: 'API로 직접 병합하는 것은 금지입니다(병합은 사용자만).' },
+  { re: /(mergepullrequest|enablepullrequestautomerge|addlabelstolabelable)/, why: 'GraphQL로 병합·자동 병합·라벨 부착은 금지입니다.' },
+  { re: /\bmerge_method\b/, why: 'API로 직접 병합하는 것은 금지입니다(병합은 사용자만).' },
   { re: /(rulesets|\/protection\b|github-setup)/, why: '브랜치 보호 설정 변경은 사람만 합니다(scripts/github-setup.sh를 사용자가 직접 실행).' },
   { re: /--no-verify\b/, why: 'git 훅 우회(--no-verify)는 금지입니다.' },
   { re: /문서변경-승인/, why: '"문서변경-승인" 라벨은 사용자만 붙입니다.' },
   { re: /(^|[\s"'`=<>\/\\(])\.env(\.(local|development|production|test)(\.local)?)?(?=$|[\s"'`;|)&])/, why: '.env 비밀값 파일 접근은 금지입니다(.env.example만 허용).' },
 ];
 
-const ASK_RULES = [
-  // 실행 파일 이름이 아니라 "pr merge" 동작을 본다: 변수("$GH" pr merge)로 불러도 잡힌다
-  { re: /\bpr\s+merge\b/, why: 'PR 병합은 사용자 승인이 필요합니다(CI·리뷰 결과를 확인하세요).' },
-];
+// 'ask'는 기본 권한 모드에서만 사람에게 묻는다. auto 모드에서는 자동 판단되므로 안전장치로 믿지 않는다(VERIFICATION §6).
+const ASK_RULES = [];
 
 export function decide(command) {
   // 실행 파일을 전체 경로·확장자·따옴표로 부르는 경우("C:/Program Files/GitHub CLI/gh.exe" pr merge)도

@@ -32,7 +32,7 @@ GitHub 이슈 = 작업 지시서. 양식: `.github/ISSUE_TEMPLATE/task.md`.
 2. 의존성 확인: 계획서의 "실행 순서" 표 기준으로 선행 작업이 `상태:완료`인 작업만 실행 가능.
 3. 실행 가능한 작업을 Operator에게 할당(동시 최대 3, 같은 파일을 건드리는 작업은 동시에 맡기지 않음, `shared/`·`server/src/app.ts` 변경은 병합 때 Coordinator만).
 4. Operator 보고 확인 → 브랜치 push → PR 생성(템플릿 채움) → Reviewer 호출 → 판정을 PR 댓글로 게시.
-5. 병합 조건: CI 통과 + Reviewer `APPROVED`(critical은 Opus 판정) + 보호 문서 변경 없음(있으면 사용자가 `문서변경-승인` 라벨). 조건을 만족하면 `gh pr merge --squash --delete-branch`를 요청(사용자 승인 창이 뜬다).
+5. 병합 준비 조건: CI 통과 + Reviewer `APPROVED`(critical은 Opus 판정) + 보호 문서 변경 없음(있으면 사용자가 `문서변경-승인` 라벨). **병합은 사용자만 한다(D-023).** 조건을 만족하면 이슈를 `상태:리뷰`로 두고 사용자에게 "병합 준비 완료" 보고(PR 링크, CI·리뷰 결과, 보호 파일 변경 여부, 작업 설명) 후 **대기**한다. 다음 사이클에서 PR이 병합된 것을 확인하면 6단계로 진행한다.
    - main은 "최신 main 기준" 검사가 필수(strict)다. 병렬 PR은 앞 PR이 병합되면 `gh pr update-branch`로 갱신하고 CI를 다시 통과해야 한다.
    - `중요-리뷰` PR의 승인 댓글은 **커밋 SHA에 묶인다.** 따라서 순서는 ① `update-branch`로 최신화 → ② CI 통과 → ③ Reviewer 호출·승인 댓글 → ④ 병합. 승인 후 브랜치를 갱신하면 승인이 무효가 되어 재리뷰가 필요하다.
    - Coordinator가 직접 하는 작업(계획 0 Task 1~3, 계획 1 Task 1·2·17a)도 예외 없이 작업 브랜치 → PR → 필수 검사로 병합한다.
@@ -48,6 +48,7 @@ GitHub 이슈 = 작업 지시서. 양식: `.github/ISSUE_TEMPLATE/task.md`.
 
 ## 6. 멈춤 조건 (루프 종료·일시정지)
 - 사용자 승인이 필요한 상황(SPEC·ADR 변경, 중요한 기술 결정, 보호 문서 변경, 비용 한도 근접)
+- 병합 대기: 실행 가능한 작업이 남아 있지 않고 PR이 사용자 병합만 기다릴 때(병렬로 진행할 다른 작업이 있으면 계속)
 - 재시도 한도 초과로 `상태:보류` 발생
 - 목표 달성(계획의 모든 이슈 완료)
 - 비용 한도 도달: 대화형 세션은 상태줄의 세션 비용이 사용자가 정한 한도(`사이클당 $_`, 미정)를 넘으면 멈춤 — **모니터링일 뿐 강제 한도가 아님**. 강제 한도가 필요하면 헤드리스 `claude -p --max-budget-usd`.
@@ -55,8 +56,8 @@ GitHub 이슈 = 작업 지시서. 양식: `.github/ISSUE_TEMPLATE/task.md`.
 ## 7. 절대 금지 (Coordinator·Operator·Reviewer·Advisor 공통)
 - `docs/PRD.md`, `docs/SPEC.md`, `docs/DECISIONS.md`를 사용자 승인 없이 변경(편집 도구·셸·스크립트 모두). 스펙과 구현이 다르면 사용자에게 묻는다.
 - 중요한 기술 결정을 임의로 확정. ADR 초안까지만 쓰고 승인받는다.
-- `main` 직접 push, 강제 push, `--admin` 병합, `--no-verify`, 브랜치 보호·ruleset 변경, `문서변경-승인` 라벨 부착.
-- CI 실패 또는 필수 리뷰 전 병합.
+- **PR 병합(모든 방법: `gh pr merge`, 자동 병합, REST·GraphQL API)**, `main` 직접 push, 강제 push, `--no-verify`, 브랜치 보호·ruleset 변경, `문서변경-승인` 라벨 부착(모든 방법).
+- `ask`(승인 요청) 판정에 기대어 진행하기: auto 모드에서는 사람에게 묻지 않는다. 사람의 결정이 필요한 일은 멈추고 보고한다.
 - `.env` 등 비밀값 파일 읽기·출력·커밋. 운영 비밀값은 Railway·GitHub Secrets에만 둔다(사용자가 직접 입력).
 - 하네스 설정(`CLAUDE.md`, `.claude/**`, `.github/workflows/**`)을 우회 목적으로 변경.
 
