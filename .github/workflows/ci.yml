@@ -11,7 +11,7 @@ permissions:
   pull-requests: read
 
 jobs:
-  # 보호 문서·하네스 설정 변경은 사용자가 `docs-approved` 라벨을 붙인 PR에서만 통과.
+  # 보호 문서·하네스 설정 변경은 사용자가 `문서변경-승인` 라벨을 붙인 PR에서만 통과.
   # 로컬 훅이 못 잡는 간접 수정(스크립트 등)을 서버 쪽에서 잡는 마지막 방어선.
   protected-files:
     if: github.event_name == 'pull_request'
@@ -24,20 +24,20 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-          APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'docs-approved') }}
+          APPROVED: ${{ contains(github.event.pull_request.labels.*.name, '문서변경-승인') }}
         run: |
           changed=$(git diff --name-only "$BASE" "$HEAD")
           hits=$(echo "$changed" | grep -E '^(docs/PRD\.md|docs/SPEC\.md|docs/DECISIONS\.md|CLAUDE\.md|\.claude/(settings\.json|hooks/|agents/)|\.github/workflows/)' || true)
           if [ -n "$hits" ]; then
             echo "보호 파일 변경:"; echo "$hits"
             if [ "$APPROVED" != "true" ]; then
-              echo "::error::보호 파일이 변경되었습니다. 사용자가 'docs-approved' 라벨을 붙여야 통과합니다."
+              echo "::error::보호 파일이 변경되었습니다. 사용자가 '문서변경-승인' 라벨을 붙여야 통과합니다."
               exit 1
             fi
           fi
           echo "OK"
 
-  # critical-review 라벨이 있는 PR은 현재 커밋에 대한 Reviewer 승인 댓글이 있어야 통과.
+  # 중요-리뷰 라벨이 있는 PR은 현재 커밋에 대한 Reviewer 승인 댓글이 있어야 통과.
   # 같은 계정이 댓글을 쓸 수 있으므로 위조 방지는 아님(사람의 병합 승인이 최종 관문).
   review-gate:
     if: github.event_name == 'pull_request'
@@ -46,7 +46,7 @@ jobs:
       - name: Require reviewer approval for critical PRs
         env:
           GH_TOKEN: ${{ github.token }}
-          CRITICAL: ${{ contains(github.event.pull_request.labels.*.name, 'critical-review') }}
+          CRITICAL: ${{ contains(github.event.pull_request.labels.*.name, '중요-리뷰') }}
           PR: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha }}
           REPO: ${{ github.repository }}

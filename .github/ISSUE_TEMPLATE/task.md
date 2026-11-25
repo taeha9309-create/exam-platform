@@ -2,7 +2,7 @@
 name: 작업 (Operator 작업 지시서)
 about: 계획서의 작업 하나. 이 이슈 본문이 Operator에게 전달되는 작업 지시서다.
 title: "[계획N-TaskM] 작업 이름"
-labels: ["status:ready"]
+labels: ["상태:준비"]
 ---
 
 ## 작업 ID와 목표

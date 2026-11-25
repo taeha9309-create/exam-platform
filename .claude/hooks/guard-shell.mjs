@@ -29,7 +29,7 @@ const DENY_RULES = [
   { re: /\bgh\s+pr\s+merge\b[^\n]*--admin/, why: '관리자 권한 병합(--admin)은 금지입니다.' },
   { re: /(rulesets|\/protection\b|github-setup)/, why: '브랜치 보호 설정 변경은 사람만 합니다(scripts/github-setup.sh를 사용자가 직접 실행).' },
   { re: /--no-verify\b/, why: 'git 훅 우회(--no-verify)는 금지입니다.' },
-  { re: /docs-approved/, why: '"docs-approved" 라벨은 사용자만 붙입니다.' },
+  { re: /문서변경-승인/, why: '"문서변경-승인" 라벨은 사용자만 붙입니다.' },
   { re: /(^|[\s"'`=<>\/\\(])\.env(\.(local|development|production|test)(\.local)?)?(?=$|[\s"'`;|)&])/, why: '.env 비밀값 파일 접근은 금지입니다(.env.example만 허용).' },
 ];
 

@@ -73,13 +73,13 @@ ${runCmds.length ? '```\n' + [...new Set(runCmds)].join('\n') + '\n```' : ''}
 
 ## 하네스 배정
 - 묶음: ${a.group} (${a.mode}) · 담당: ${a.coordinator ? 'Coordinator 직접' : 'Operator'}
-- Operator 모델: ${a.model} · Reviewer: ${a.critical ? 'opus (critical-review)' : 'sonnet'}
+- Operator 모델: ${a.model} · Reviewer: ${a.critical ? 'opus (중요-리뷰)' : 'sonnet'}
 `;
-  const labels = ['status:ready', `plan-${planNo}`, `model:${a.model}`];
-  if (a.critical) labels.push('critical-review');
-  if (/client\//.test(block(sec, 'Files'))) labels.push('area:client');
-  if (/server\/|prisma/.test(block(sec, 'Files'))) labels.push('area:server');
-  if (/railway|docker|workflow|package\.json|e2e\//i.test(block(sec, 'Files'))) labels.push('area:infra');
+  const labels = ['상태:준비', `계획-${planNo}`, `모델:${a.model}`];
+  if (a.critical) labels.push('중요-리뷰');
+  if (/client\//.test(block(sec, 'Files'))) labels.push('영역:클라이언트');
+  if (/server\/|prisma/.test(block(sec, 'Files'))) labels.push('영역:서버');
+  if (/railway|docker|workflow|package\.json|e2e\//i.test(block(sec, 'Files'))) labels.push('영역:인프라');
   if (dry) { console.log(`---- ${title}\nlabels: ${labels.join(', ')}\n${body}`); continue; }
   const args = ['issue', 'create', '--title', title, '--body', body, '--milestone', milestone];
   for (const l of labels) args.push('--label', l);
