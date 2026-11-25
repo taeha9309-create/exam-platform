@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node 24, TypeScript 5, Express 4, Socket.IO 4, Prisma 6 + PostgreSQL 16(로컬은 Docker), zod, bcryptjs, jsonwebtoken, cookie-parser, express-rate-limit, React 18 + Vite + React Router 6, socket.io-client, Vitest, supertest, Playwright.
 
-**Spec:** `docs/SPEC.md` v1.3 — 1장, 2장, 3장, 4장, 6장(F-01~F-11, F-14 승인 API, F-17, F-18, F-19 일부), 7장 / `docs/PRD.md` v1.3
+**Spec:** `docs/SPEC.md` v1.4 · ADR-001~008 (`docs/DECISIONS.md`) — 1장, 2장, 3장, 4장, 6장(F-01~F-11, F-14 승인 API, F-17, F-18, F-19 일부), 7장 / `docs/PRD.md` v1.3
 
 ## Global Constraints
 - 저장은 UTC, 화면 표시는 Asia/Seoul.
@@ -166,7 +166,7 @@
   - `endExam(examId, now = new Date()): Promise<Exam>` — `RUNNING`→`ENDED`, `endedAt=now`, 비종착 응시는 `EXAM_END` 전이(제출 처리는 Task 11의 `submitAttempt(id, 'EXAM_ENDED')` 사용 — 이 태스크에서는 상태 전이·`submittedAt`·`submitReason`만 기록하고, Task 11에서 채점 호출을 추가).
   - 라우트: `POST /api/exams/:id/open|passcode|start|end`.
 
-- [ ] **Step 1: 실패하는 테스트** — 문항 없는 시험 open → 409 `NOT_READY_TO_OPEN`; open 후 `passcode`가 6자리; 재발급하면 값이 바뀜; **`Promise.all([start, start])` → 하나는 200, 하나는 409 `ALREADY_STARTED`, `endsAt`은 한 번만 설정**(Review Focus 1); start 시 준비 완료 WAITING은 ACTIVE, 미준비는 WAITING 유지; end 후 ACTIVE 응시가 `SUBMITTED`/`EXAM_ENDED`, PENDING_APPROVAL은 `REJECTED`.
+- [ ] **Step 1: 실패하는 테스트** — 문항 없는 시험 open → 409 `NOT_READY_TO_OPEN`; open 후 `passcode`가 6자리; 재발급하면 값이 바뀌고 **이전 비밀번호로 `/api/student/entry` → 401, 재발급 전에 입장한 학생의 `/api/student/attempt`는 200**(F-06 AC, G2; Task 8 완료 전까지 `it.todo`로 두고 Task 8에서 활성화); **`Promise.all([start, start])` → 하나는 200, 하나는 409 `ALREADY_STARTED`, `endsAt`은 한 번만 설정**(Review Focus 1); start 시 준비 완료 WAITING은 ACTIVE, 미준비는 WAITING 유지; end 후 ACTIVE 응시가 `SUBMITTED`/`EXAM_ENDED`, PENDING_APPROVAL은 `REJECTED`.
 - [ ] **Step 2: 실패 확인** — FAIL
 - [ ] **Step 3: 구현**
 - [ ] **Step 4: 통과 확인** — PASS
@@ -269,7 +269,7 @@
   - `POST /api/student/survey { difficulty?: 1..5, comment?: string(≤1000) }` — 상태가 `SUBMITTED`/`TERMINATED`만(아니면 409), `surveyDone=true`면 409 `ALREADY_SUBMITTED`. `SurveyResponse`에는 `examId, difficulty, comment`만 저장. 둘 다 비어 있으면 응답은 만들지 않고 `surveyDone`만 true(건너뛰기).
   - `GET /api/exams/:id/survey` → `{ count, distribution: [n1..n5], average: number | null, comments: string[] }` — comments는 요청마다 무작위 순서.
 
-- [ ] **Step 1: 실패하는 테스트** — 서술형 미채점 시 total null, 채점 후 total = MCQ + 서술형; 배점 초과 400; MCQ 답안 grade 요청 400; 설문 두 번째 제출 409; `SurveyResponse` 행의 컬럼 목록에 attempt·student·시각 관련 컬럼이 없음(Prisma DMMF로 검사); 응답 3개(난이도 2,4,4) → distribution `[0,1,0,2,0]`, average `3.33`(소수 둘째 자리).
+- [ ] **Step 1: 실패하는 테스트** — 설문 요약을 `buildSurveySummary(rows, shuffle: <T>(xs: T[]) => T[])`로 분리하고 역순 함수를 주입하면 `comments`가 역순(F-18 AC, G4); 서술형 미채점 시 total null, 채점 후 total = MCQ + 서술형; 배점 초과 400; MCQ 답안 grade 요청 400; 설문 두 번째 제출 409; `SurveyResponse` 행의 컬럼 목록에 attempt·student·시각 관련 컬럼이 없음(Prisma DMMF로 검사); 응답 3개(난이도 2,4,4) → distribution `[0,1,0,2,0]`, average `3.33`(소수 둘째 자리).
 - [ ] **Step 2: 실패 확인** — FAIL
 - [ ] **Step 3: 구현**
 - [ ] **Step 4: 통과 확인** — PASS
@@ -301,7 +301,7 @@
 **Interfaces:**
 - Consumes: Task 13.
 - Produces: `ExamRunPage`는 계획 2에서 대시보드로 확장할 자리. 이번 범위: 상태, 남은 시간, [입장 열기]·비밀번호 크게 보기(전체 화면 오버레이)·[재발급]·[시험 시작]·[시험 종료](확인 대화상자)·[신규 입장 차단] 토글, 입장 현황 `ready/total`(`waiting:count`), 승인 요청 목록(지각·중복, [승인]/[거절] + 사유 빠른 선택 "현장 확인 완료").
-- [ ] **Step 1: 실패하는 테스트 (React Testing Library, api 모킹)** — 문항 편집에서 MCQ 보기 1개로 저장하면 서버 오류(`index 0, choices`)가 그 문항 아래 표시; 명단 CSV 오류가 "2번째 줄" 문구로 표시; 문항 없는 시험은 [입장 열기] 비활성 + 이유 표시; 결과 화면에서 서술형 점수 입력란에 배점 초과 입력 시 저장 버튼 비활성.
+- [ ] **Step 1: 실패하는 테스트 (React Testing Library, api 모킹)** — 문항 편집에서 MCQ 보기 1개로 저장하면 서버 오류(`index 0, choices`)가 그 문항 아래 표시; 명단 CSV 오류가 "2번째 줄" 문구로 표시; 문항 없는 시험은 [입장 열기] 비활성 + 이유 표시; 시험 목록에서 `RUNNING` 시험의 [삭제] 버튼 비활성(F-02 AC, G5); 결과 화면에서 서술형 점수 입력란에 배점 초과 입력 시 저장 버튼 비활성.
 - [ ] **Step 2: 실패 확인** — FAIL
 - [ ] **Step 3: 구현** — 스타일은 단순한 CSS 모듈, 외부 UI 라이브러리 없이.
 - [ ] **Step 4: 통과 확인** — PASS, `npm run dev`에서 로그인→시험 생성→문항·명단 입력→입장 열기까지 수동 확인
@@ -341,11 +341,24 @@
 - Produces:
   - `npm run demo:reset` — 데모 교수자 `demo@exam.local` / 비밀번호는 환경변수 `DEMO_STAFF_PASSWORD`, 데모 시험(객관식 5 + 서술형 2, 명단 `20269001`~`20269020` 이름 "학생01"~"학생20", 제한 30분, `OPEN`, 비밀번호는 환경변수 `DEMO_PASSCODE`(기본 `246810`)). 기존 데모 데이터는 삭제 후 재생성.
   - `docs/DEMO.md`: 평가자 접속 안내(교수자 로그인, 학생 입장 URL·학번·비밀번호, 두 브라우저 사용법). 운영 비밀번호 값은 문서에 적지 않고 제출용 안내에만 별도 기재.
-- [ ] **Step 1: E2E 작성** — 교수자 로그인 → 데모 시험 운영 화면 → 학생 컨텍스트 2개가 입장·본인 확인·동의·환경 점검(테스트에서는 `navigator.userAgentData`를 Chrome으로 주입, `requestFullscreen`은 Playwright에서 허용) → 대기실 `2/20` 확인 → 교수자 [시험 시작] → 두 학생 ExamTaking 2초 내 표시 → 학생1 답안 입력 후 새로고침해도 답 유지 → 학생1 제출·설문 제출 → 교수자 [시험 종료] → 학생2 제출 완료 화면 → 결과 화면에서 서술형 채점 → 총점 표시 → 설문 화면 응답 수 1.
+- [ ] **Step 1: E2E 작성** — 교수자 로그인 → 데모 시험 운영 화면 → 학생 컨텍스트 2개가 입장·본인 확인·동의·환경 점검(테스트에서는 `navigator.userAgentData`를 Chrome으로 주입, `requestFullscreen`은 Playwright에서 허용) → 대기실 `2/20` 확인 → 교수자 [시험 시작] → 두 학생 ExamTaking 2초 내 표시 → **두 학생 화면의 남은 시간 차이 ≤ 1초**(F-06 AC, G3) → 학생1 답안 입력 후 새로고침해도 답 유지 → 학생1 제출·설문 제출 → 교수자 [시험 종료] → 학생2 제출 완료 화면 → (제한 1분짜리 별도 시험) 마감 시각 경과 후 **1초 안에** 제출 완료 화면(F-11 AC, G3) → 결과 화면에서 서술형 채점 → 총점 표시 → 설문 화면 응답 수 1.
 - [ ] **Step 2: 실행해 실패 지점 확인 후 수정** — Run: `npx playwright test` / Expected: 최종 PASS
 - [ ] **Step 3: Commit** — `git commit -m "test(e2e): 핵심 시험 흐름과 데모 데이터"`
 
-### Task 17: 초기 배포 (Railway)
+### Task 17a: 뼈대 초기 배포 (Task 2 직후 수행)
+
+**Files:**
+- Create: `railway.json`(빌드 `npm ci && npm run build`, 시작 `npx prisma migrate deploy -w server && node server/dist/index.js`)
+- Modify: `README.md`(배포 절차 초안)
+
+**Interfaces:**
+- Produces: 배포 URL(HTTPS)에서 `GET /api/health` 200. PRD 7.1 "1주차 초기 배포"(G1).
+
+- [ ] **Step 1:** Railway 프로젝트에 웹 서비스 + PostgreSQL 추가(계정·결제 정보는 사용자가 직접), 환경변수 `DATABASE_URL`, `JWT_SECRET`, `NODE_ENV=production` 설정
+- [ ] **Step 2:** 배포 후 `curl https://<배포 URL>/api/health` → `{"ok":true}`, 마이그레이션 로그에 오류 없음
+- [ ] **Step 3: Commit** — `git commit -m "chore(deploy): 뼈대 초기 배포"`
+
+### Task 17b: 전체 배포 (Railway)
 
 **Files:**
 - Create: `railway.json` 또는 `nixpacks.toml`(빌드: `npm ci && npm run build`, 시작: `npx prisma migrate deploy -w server && node server/dist/index.js`), `server/src/static.ts`
@@ -355,11 +368,23 @@
 - Produces: 배포 URL(HTTPS). 환경변수 `DATABASE_URL`, `JWT_SECRET`, `NODE_ENV=production`, `DEMO_STAFF_PASSWORD`, `DEMO_PASSCODE`.
 - [ ] **Step 1: 실패하는 테스트** — `NODE_ENV=production`에서 `GET /staff/login`(존재하지 않는 서버 경로)이 `index.html`을 반환하고, `GET /api/unknown`은 404 JSON.
 - [ ] **Step 2: 실패 확인** — FAIL
-- [ ] **Step 3: 구현과 배포** — Railway 프로젝트에 웹 서비스 + PostgreSQL 추가(사용자 계정에서 진행, 결제 정보 입력은 사용자가 직접), 환경변수 설정, 배포, 배포 서버 콘솔에서 `npm run demo:reset`.
+- [ ] **Step 3: 구현과 배포** — 17a의 Railway 서비스에 정적 제공·`trust proxy`·환경변수 `DEMO_STAFF_PASSWORD`, `DEMO_PASSCODE` 추가 후 재배포, 배포 서버 콘솔에서 `npm run demo:reset`.
 - [ ] **Step 4: 배포 검증** — 배포 URL에서 `GET /api/health` 200, 실제 휴대폰/다른 PC 1대 + 내 PC로 Task 16 시나리오를 수동 진행(교수자 1, 학생 1) → 전 단계 통과. `PLAYWRIGHT_BASE_URL=<배포 URL> npx playwright test` 1회 통과.
 - [ ] **Step 5: Commit** — `git commit -m "chore(deploy): Railway 초기 배포"`
 
 ---
+
+## 계획 2에서 검증하는 SPEC 완료 조건 (G8)
+- F-08 "대시보드 해당 학생에 '동의 거부'가 보인다", F-09 "대시보드 해당 학생에 '다중 모니터' 신호가 보인다": 계획 1은 데이터 저장(`consentDeclined`, `MULTI_MONITOR` 신호)까지 검증하고, 화면 표시는 계획 2의 대시보드 작업에서 검증한다.
+
+## 실행 순서 (하네스 배정, ADR-010)
+| 묶음 | 작업 | 담당 |
+|---|---|---|
+| A (순차) | 1 → 2 → 17a | Coordinator 직접 |
+| B (병렬, worktree) | 3 · 4🔒 · 13 | Operator(3: Haiku, 4·13: Sonnet), 4는 Opus 보안 리뷰 |
+| C (순차) | 5 → 6🔒 → 7 → 8🔒 → 9 → 10 → 11🔒 → 12🔒 | Operator(Sonnet), 🔒는 Opus 보안 리뷰 |
+| D (병렬, worktree) | 14 · 15🔒(자동 저장 훅) | Operator(Sonnet) |
+| E (순차) | 16 → 17b🔒 | Operator(Sonnet), 17b 배포 설정은 Opus 보안 리뷰 |
 
 ## 이후 계획 (이 계획에 포함하지 않음)
 - **계획 2: 감지 + 감독 대시보드** — SPEC 5장(신호 수집, 위반 카운트·자동 잠금, 카드 색·ACK, 네트워크 장애 묶음, 계획 0 채택 항목), F-12, F-13(스냅샷·변경분, 학생 카드, 정렬·검색), F-15, F-16(나머지 조치), F-20. 계획 0 결과를 반영해 작성한다.
