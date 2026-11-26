@@ -1,7 +1,7 @@
 // 실험 결과 JSON(lab.js가 내보낸 파일)을 (브라우저 × 시나리오)별로 집계해 마크다운 표로 출력한다.
 // 사용: node experiments/detection-lab/summarize.js experiments/detection-lab/results/
 // 한 회차에서 같은 신호가 여러 번 나와도 그 회차는 1 hit로 센다(채택 기준이 "10회 중 몇 회"이므로).
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -15,6 +15,12 @@ export const SIGNALS = [
 function splitBrowser(label) {
   const m = String(label).match(/^(.*?)\s+(\d[\d.]*)$/);
   return m ? { name: m[1], version: m[2] } : { name: String(label), version: null };
+}
+
+/** 시작 시각(ms). 없거나 해석할 수 없는 값은 가장 이른 것(-Infinity)으로 취급해 정상 기록이 항상 이기게 한다. */
+function startedMs(file) {
+  const ms = typeof file.startedAt === 'string' ? Date.parse(file.startedAt) : NaN;
+  return Number.isNaN(ms) ? -Infinity : ms;
 }
 
 /** 회차 하나에서 발생한 신호 이름 집합(중복 제거) */
@@ -43,7 +49,7 @@ export function summarize(files) {
     if (!prev) g.trials.set(f.trial, f);
     else {
       g.duplicatesIgnored += 1;
-      if (String(f.startedAt) > String(prev.startedAt)) g.trials.set(f.trial, f);
+      if (startedMs(f) > startedMs(prev)) g.trials.set(f.trial, f);
     }
   }
 
@@ -99,6 +105,10 @@ function main() {
   const dir = process.argv[2];
   if (!dir) {
     console.error('사용법: node experiments/detection-lab/summarize.js <결과 폴더>');
+    process.exit(2);
+  }
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+    console.error(`폴더를 찾을 수 없습니다: ${dir}`);
     process.exit(2);
   }
   const { files, errors } = loadResults(dir);

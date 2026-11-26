@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { summarize, formatMarkdown, loadResults, SIGNALS } from './summarize.js';
 
 const trialFile = ({ browser = 'Google Chrome 158', scenario = 'tab-switch', trial = 1, startedAt = '2026-11-26T01:00:00.000Z', signals = [], extra = [] } = {}) => ({
@@ -62,6 +64,18 @@ test('같은 회차 번호가 두 번 있으면 더 늦게 시작한 기록만 �
   assert.equal(rows[0].duplicatesIgnored, 1);
 });
 
+test('startedAt이 없거나 이상한 기록은 정상 기록보다 "늦은 것"으로 뽑히지 않는다(입력 순서와 무관)', () => {
+  const good = trialFile({ trial: 3, startedAt: '2026-11-26T01:00:00.000Z', signals: ['BLUR'] });
+  for (const bad of [undefined, '', 'not-a-date']) {
+    const broken = { ...trialFile({ trial: 3, signals: [] }), startedAt: bad };
+    for (const order of [[good, broken], [broken, good]]) {
+      const rows = summarize(order);
+      assert.equal(rows[0].trials, 1);
+      assert.deepEqual(rows[0].hits, { BLUR: 1 }, `startedAt=${String(bad)} 일 때 정상 기록이 선택돼야 함`);
+    }
+  }
+});
+
 test('signal이 아닌 원시 이벤트는 hit로 세지 않는다', () => {
   const rows = summarize([trialFile({ extra: [{ t: 2, wall: 2, kind: 'blur', detail: { name: 'BLUR' } }] })]);
   assert.deepEqual(rows[0].hits, {});
@@ -105,6 +119,45 @@ test('SIGNALS는 실험 페이지의 후보 신호 9종과 같다', () => {
     'VISIBILITY_HIDDEN', 'BLUR', 'FULLSCREEN_EXIT', 'SIDEBAR_SUSPECT', 'POINTER_LEAVE',
     'MULTI_MONITOR', 'DOM_INJECTED', 'INPUT_WITHOUT_FOCUS', 'LARGE_SELECTION',
   ]);
+});
+
+const cli = (...args) => spawnSync(process.execPath, [fileURLToPath(new URL('./summarize.js', import.meta.url)), ...args], { encoding: 'utf8' });
+
+test('CLI: 인자가 없으면 사용법과 종료코드 2', () => {
+  const r = cli();
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /사용법/);
+});
+
+test('CLI: 존재하지 않는 폴더는 스택 트레이스가 아니라 안내 메시지와 종료코드 2', () => {
+  const r = cli(join(tmpdir(), 'lab-no-such-folder-xyz'));
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /폴더를 찾을 수 없습니다/);
+  assert.doesNotMatch(r.stderr, /at .*\(.*:\d+:\d+\)/, '스택 트레이스가 노출되면 안 됨');
+});
+
+test('CLI: 파일을 폴더 자리에 주어도 같은 안내와 종료코드 2', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lab-cli-'));
+  try {
+    const file = join(dir, 'a.json');
+    writeFileSync(file, '{}');
+    const r = cli(file);
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /폴더를 찾을 수 없습니다/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('CLI: 결과 파일이 없는 빈 폴더는 안내만 하고 종료코드 0', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lab-cli-'));
+  try {
+    const r = cli(dir);
+    assert.equal(r.status, 0);
+    assert.match(r.stderr, /집계할 결과 파일이 없습니다/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // lab.js는 별도 PR(계획0-Task2)로 들어오므로, 파일이 있을 때만 검사한다. 둘 다 병합되면 자동으로 실행된다.
