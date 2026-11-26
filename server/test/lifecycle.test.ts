@@ -132,9 +132,24 @@ describe('POST /api/exams/:id/passcode', () => {
     expect((await post(`/api/exams/${MISSING_ID}/passcode`)).status).toBe(404);
   });
 
-  // Task 8(/api/student/entry) 완료 후 활성화
-  it.todo('재발급 후 이전 비밀번호로 /api/student/entry → 401');
-  it.todo('재발급 전에 입장한 학생의 /api/student/attempt는 200');
+  it('재발급 후 이전 비밀번호로 /api/student/entry → 401, 새 비밀번호는 200', async () => {
+    const exam = await makeExam({ ownerId, status: 'OPEN', passcode: '111111' });
+    const entry = (passcode: string) => request(app).post('/api/student/entry').send({ examCode: exam.examCode, studentNo: '20260001', passcode });
+    expect((await entry('111111')).status).toBe(200);
+    const res = await post(`/api/exams/${exam.id}/passcode`);
+    expect((await entry('111111')).status).toBe(401);
+    expect((await entry(res.body.passcode)).status).toBe(200);
+  });
+
+  it('재발급 전에 입장한 학생의 /api/student/attempt는 200', async () => {
+    const exam = await makeExam({ ownerId, status: 'OPEN', passcode: '111111' });
+    const confirmed = await request(app).post('/api/student/confirm').send({ examCode: exam.examCode, studentNo: '20260001', passcode: '111111' });
+    expect(confirmed.status).toBe(200);
+    await post(`/api/exams/${exam.id}/passcode`);
+    const res = await request(app).get('/api/student/attempt').set('Authorization', `Bearer ${confirmed.body.sessionToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.state).toBe('WAITING');
+  });
 });
 
 describe('POST /api/exams/:id/start', () => {
