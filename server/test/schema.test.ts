@@ -1,13 +1,14 @@
 import { Prisma } from '@prisma/client';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '../src/db';
+import { expectCheckViolation, expectForeignKeyViolation, expectUniqueViolation, expectValueTooLong } from './helpers/dbErrors';
 import { assertTestDatabase, makeExam, makeStaff, resetDb } from './helpers/db';
 
 beforeEach(async () => {
   await resetDb();
 });
 
-/** 시험 + 응시 1건(+답안·신호·조치)을 만든다 */
+/** 시험 + 응시 1건(+답안·신호·조치·설문)을 만든다 */
 async function makeAttemptTree() {
   const exam = await makeExam();
   const staff = await makeStaff();
@@ -44,25 +45,30 @@ describe('삭제 연쇄 (SPEC 4장: 시험을 삭제하면 함께 삭제)', () =
     expect(await prisma.staff.findUnique({ where: { id: staff.id } })).not.toBeNull();
   });
 
-  it('시스템 조치(staffId 없음)를 저장할 수 있고, 교수자를 지워도 조치 기록은 남는다', async () => {
+  it('조치만 한 교수자를 지워도 조치 기록은 남고 작성자가 비워진다(시스템 조치는 처음부터 작성자가 없다)', async () => {
     const { attempt, staff } = await makeAttemptTree();
     await prisma.proctorAction.create({ data: { attemptId: attempt.id, staffId: null, type: 'AUTO_PAUSE', reason: '시스템 자동 일시정지(위반 5회)' } });
-    // 시험 소유 교수자는 지울 수 없으므로(Restrict), 조치만 한 별도 교수자를 지운다
+    expect(await prisma.proctorAction.count({ where: { attemptId: attempt.id, staffId: staff.id } })).toBe(1);
+
+    // 이 교수자는 시험을 소유하지 않으므로 지울 수 있다(소유한 교수자는 아래 Restrict 테스트)
     await prisma.staff.delete({ where: { id: staff.id } });
+
     expect(await prisma.proctorAction.count({ where: { attemptId: attempt.id } })).toBe(2);
+    expect(await prisma.proctorAction.count({ where: { attemptId: attempt.id, staffId: staff.id } })).toBe(0);
     expect(await prisma.proctorAction.count({ where: { attemptId: attempt.id, staffId: null } })).toBe(2);
   });
 
-  it('시험이 있는 교수자는 지울 수 없다(Restrict)', async () => {
+  it('시험이 있는 교수자는 지울 수 없다(Restrict, FK Exam_ownerId_fkey)', async () => {
     const exam = await makeExam();
-    await expect(prisma.staff.delete({ where: { id: exam.ownerId } })).rejects.toThrow();
+    await expectForeignKeyViolation(prisma.staff.delete({ where: { id: exam.ownerId } }), 'Exam_ownerId_fkey');
+    expect(await prisma.staff.findUnique({ where: { id: exam.ownerId } })).not.toBeNull();
   });
 });
 
 describe('유일성 제약', () => {
   it('같은 시험에 같은 학번을 두 번 등록할 수 없다', async () => {
     const exam = await makeExam();
-    await expect(prisma.rosterEntry.create({ data: { examId: exam.id, studentNo: '20260001', name: '중복' } })).rejects.toThrow();
+    await expectUniqueViolation(prisma.rosterEntry.create({ data: { examId: exam.id, studentNo: '20260001', name: '중복' } }), ['examId', 'studentNo']);
   });
 
   it('다른 시험에는 같은 학번을 등록할 수 있다', async () => {
@@ -73,51 +79,77 @@ describe('유일성 제약', () => {
 
   it('examCode와 교수자 이메일은 유일하다', async () => {
     const exam = await makeExam();
-    await expect(makeExam({ examCode: exam.examCode })).rejects.toThrow();
+    await expectUniqueViolation(makeExam({ examCode: exam.examCode }), ['examCode']);
     const staff = await makeStaff({ email: 'dup@test.local' });
-    await expect(makeStaff({ email: staff.email })).rejects.toThrow();
+    await expectUniqueViolation(makeStaff({ email: staff.email }), ['email']);
   });
 
   it('명단 한 명에 응시는 하나뿐이다', async () => {
     const { exam, attempt } = await makeAttemptTree();
-    await expect(
+    await expectUniqueViolation(
       prisma.attempt.create({ data: { examId: exam.id, rosterEntryId: attempt.rosterEntryId, sessionTokenHash: 'other', questionOrder: [], choiceOrders: {} } }),
-    ).rejects.toThrow();
+      ['rosterEntryId'],
+    );
+  });
+
+  it('세션 토큰 해시는 응시마다 유일하다', async () => {
+    const { exam, attempt } = await makeAttemptTree();
+    const other = await prisma.rosterEntry.findFirstOrThrow({ where: { examId: exam.id, id: { not: attempt.rosterEntryId } } });
+    await expectUniqueViolation(
+      prisma.attempt.create({ data: { examId: exam.id, rosterEntryId: other.id, sessionTokenHash: attempt.sessionTokenHash, questionOrder: [], choiceOrders: {} } }),
+      ['sessionTokenHash'],
+    );
   });
 
   it('한 응시에서 같은 문항의 답안은 하나뿐이다', async () => {
     const { attempt } = await makeAttemptTree();
     const answer = await prisma.answer.findFirstOrThrow({ where: { attemptId: attempt.id } });
-    await expect(prisma.answer.create({ data: { attemptId: attempt.id, questionId: answer.questionId, text: '또' } })).rejects.toThrow();
+    await expectUniqueViolation(prisma.answer.create({ data: { attemptId: attempt.id, questionId: answer.questionId, text: '또' } }), ['attemptId', 'questionId']);
+  });
+
+  it('같은 시험에서 문항 위치는 겹칠 수 없다', async () => {
+    const exam = await makeExam();
+    await expectUniqueViolation(prisma.question.create({ data: { examId: exam.id, position: 0, type: 'ESSAY', prompt: '겹침', points: 1 } }), ['examId', 'position']);
   });
 });
 
-describe('값 제약(CHECK)', () => {
+describe('값 제약(CHECK, 마이그레이션 SQL로 건 것)', () => {
   it('배점은 1 이상이어야 한다', async () => {
     const exam = await makeExam();
-    await expect(prisma.question.create({ data: { examId: exam.id, position: 9, type: 'ESSAY', prompt: 'x', points: 0 } })).rejects.toThrow();
+    await expectCheckViolation(prisma.question.create({ data: { examId: exam.id, position: 9, type: 'ESSAY', prompt: 'x', points: 0 } }), 'Question_points_min');
+    await expect(prisma.question.create({ data: { examId: exam.id, position: 9, type: 'ESSAY', prompt: 'x', points: 1 } })).resolves.toBeTruthy();
   });
 
   it('제한 시간은 1~300분이다', async () => {
-    await expect(makeExam({ durationMin: 0 })).rejects.toThrow();
-    await expect(makeExam({ durationMin: 301 })).rejects.toThrow();
+    await expectCheckViolation(makeExam({ durationMin: 0 }), 'Exam_durationMin_range');
+    await expectCheckViolation(makeExam({ durationMin: 301 }), 'Exam_durationMin_range');
+    await expect(makeExam({ durationMin: 1 })).resolves.toBeTruthy();
     await expect(makeExam({ durationMin: 300 })).resolves.toBeTruthy();
   });
 
   it('체감 난이도는 1~5이거나 비어 있어야 한다', async () => {
     const exam = await makeExam();
-    await expect(prisma.surveyResponse.create({ data: { examId: exam.id, difficulty: 6 } })).rejects.toThrow();
-    await expect(prisma.surveyResponse.create({ data: { examId: exam.id, difficulty: 0 } })).rejects.toThrow();
+    await expectCheckViolation(prisma.surveyResponse.create({ data: { examId: exam.id, difficulty: 6 } }), 'SurveyResponse_difficulty_range');
+    await expectCheckViolation(prisma.surveyResponse.create({ data: { examId: exam.id, difficulty: 0 } }), 'SurveyResponse_difficulty_range');
+    await expect(prisma.surveyResponse.create({ data: { examId: exam.id, difficulty: 1 } })).resolves.toBeTruthy();
+    await expect(prisma.surveyResponse.create({ data: { examId: exam.id, difficulty: 5 } })).resolves.toBeTruthy();
     await expect(prisma.surveyResponse.create({ data: { examId: exam.id, difficulty: null, comment: '의견만' } })).resolves.toBeTruthy();
   });
+});
 
-  it('서술형 답안은 5000자까지, 설문 의견은 1000자까지', async () => {
+describe('길이 제한(VarChar)', () => {
+  it('서술형 답안은 5000자까지', async () => {
     const { attempt } = await makeAttemptTree();
-    const q = await prisma.question.create({ data: { examId: attempt.examId, position: 7, type: 'ESSAY', prompt: 'y', points: 1 } });
-    await expect(prisma.answer.create({ data: { attemptId: attempt.id, questionId: q.id, text: 'a'.repeat(5000) } })).resolves.toBeTruthy();
-    const q2 = await prisma.question.create({ data: { examId: attempt.examId, position: 8, type: 'ESSAY', prompt: 'z', points: 1 } });
-    await expect(prisma.answer.create({ data: { attemptId: attempt.id, questionId: q2.id, text: 'a'.repeat(5001) } })).rejects.toThrow();
-    await expect(prisma.surveyResponse.create({ data: { examId: attempt.examId, comment: 'b'.repeat(1001) } })).rejects.toThrow();
+    const ok = await prisma.question.create({ data: { examId: attempt.examId, position: 7, type: 'ESSAY', prompt: 'y', points: 1 } });
+    const over = await prisma.question.create({ data: { examId: attempt.examId, position: 8, type: 'ESSAY', prompt: 'z', points: 1 } });
+    await expect(prisma.answer.create({ data: { attemptId: attempt.id, questionId: ok.id, text: 'a'.repeat(5000) } })).resolves.toBeTruthy();
+    await expectValueTooLong(prisma.answer.create({ data: { attemptId: attempt.id, questionId: over.id, text: 'a'.repeat(5001) } }));
+  });
+
+  it('설문 의견은 1000자까지', async () => {
+    const exam = await makeExam();
+    await expect(prisma.surveyResponse.create({ data: { examId: exam.id, comment: 'b'.repeat(1000) } })).resolves.toBeTruthy();
+    await expectValueTooLong(prisma.surveyResponse.create({ data: { examId: exam.id, comment: 'b'.repeat(1001) } }));
   });
 });
 

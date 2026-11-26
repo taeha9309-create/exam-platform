@@ -37,6 +37,7 @@ npm run dev            # 서버(3000) + 화면(5173) 동시 실행 → http://lo
 ### 데이터베이스
 - 로컬 PostgreSQL은 `localhost`에서만 접속됩니다(`127.0.0.1:5432`). 데이터베이스는 **`exam`(개발)** 과 **`exam_test`(통합 테스트)** 두 개입니다.
 - 테스트(`npm test`)는 시작할 때 `exam_test`에 마이그레이션을 자동 적용하고, 각 테스트 전에 테이블을 비웁니다. **이름이 `_test`로 끝나지 않는 DB는 거부**하므로 개발 DB가 지워질 일은 없습니다.
+- 테스트는 `.env`를 읽지 않습니다. 다른 테스트 DB(예: 다른 작업과 동시에 테스트할 때)를 쓰려면 셸에서 지정하세요: `TEST_DATABASE_URL=postgresql://exam:exam@localhost:5432/이름_test npm test -w @exam/server` (DB는 미리 만들어 두고, 이름은 `_test`로 끝나야 합니다).
 - 개발 DB에 스키마 적용: `npm run db:deploy -w @exam/server` (스키마를 바꾸는 개발 중에는 `npm run db:migrate -w @exam/server`).
 - DB를 통째로 초기화하려면 `npm run db:down -- -v` 후 `npm run db:up`. (`exam_test`를 만드는 초기 SQL은 볼륨을 **처음 만들 때만** 실행되므로, `exam_test`가 없다는 오류가 나면 이 방법을 쓰세요.)
 - npm이 보안 설정으로 패키지의 설치 스크립트를 막기 때문에 Prisma 클라이언트는 자동 생성되지 않습니다. `npm test`·`npm run typecheck`·`npm run build`가 실행 전에 `prisma generate`를 자동으로 호출합니다(직접 하려면 `npm run db:generate -w @exam/server`).
