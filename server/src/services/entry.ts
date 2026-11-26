@@ -1,4 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { EV } from '@exam/shared';
 import { Prisma, type Attempt, type Exam, type RosterEntry } from '@prisma/client';
 import type { Response } from 'express';
 import { generateToken, hashToken } from '../auth/studentSession';
@@ -346,4 +347,88 @@ export async function resolveApproval(input: ApprovalInput): Promise<Attempt> {
     ...(input.type === 'APPROVE_SESSION' ? [() => broadcast.revokeSession(updated.id)] : []),
   ]);
   return updated;
+}
+
+// ───────────────────────── 동의·환경 점검·준비 완료(F-08·F-09·F-10) ─────────────────────────
+
+export interface EnvInput {
+  browser: 'chrome' | 'edge';
+  isExtended: boolean;
+}
+
+const CONSENT_REQUIRED = () => new AppError(409, 'CONSENT_REQUIRED', '먼저 사전 고지에 동의해야 합니다.');
+const SESSION_INVALID = () => new AppError(401, 'UNAUTHORIZED', '인증이 필요합니다.');
+
+type ExamTx = Parameters<Parameters<typeof runExamTx>[0]>[0];
+
+/**
+ * 동의·환경 점검의 공통 처리. 시험 행을 잠근 트랜잭션 안에서 시험·응시 상태를 다시 읽고 확인하므로
+ * 시험 시작·종료와 겹쳐도 상태가 모순되지 않는다(예: 종료 직후에는 READY 전이도, 변경도 없다).
+ * - 시험이 OPEN/RUNNING이고 응시가 WAITING일 때만 바꾼다. PENDING_APPROVAL(승인 전)·ACTIVE/PAUSED(이미 응시 중)·종착 상태는 409.
+ * - 아무것도 바뀌지 않는 반복 요청은 DB 쓰기·실시간 알림을 만들지 않는다(요청 반복으로 알림이 늘지 않는다).
+ * - 준비 완료(동의 + 환경 점검)가 되는 순간 RUNNING이면 ACTIVE로 전이, 아니면 대기 인원을 알린다.
+ */
+async function updateReadiness(
+  attemptId: string,
+  sessionTokenHash: string,
+  mutate: (attempt: Attempt, tx: ExamTx) => Promise<Prisma.AttemptUpdateInput | null>,
+): Promise<ReturnType<typeof studentAttemptView>> {
+  const found = await prisma.attempt.findUnique({ where: { id: attemptId }, select: { examId: true } });
+  if (!found) throw SESSION_INVALID();
+
+  const post: Post = [];
+  const view = await runExamTx(async (tx) => {
+    const { status } = await lockExam(tx, found.examId);
+    const attempt = await tx.attempt.findUnique({ where: { id: attemptId } });
+    // 잠금을 기다리는 동안 다른 기기가 승인되어 이 토큰이 무효가 되었을 수 있다.
+    if (!attempt || attempt.sessionTokenHash !== sessionTokenHash) throw SESSION_INVALID();
+    const exam = await tx.exam.findUniqueOrThrow({ where: { id: found.examId } });
+    if (status !== 'OPEN' && status !== 'RUNNING') throw INVALID_STATE();
+    if (attempt.state !== 'WAITING') throw INVALID_STATE();
+
+    const data = await mutate(attempt, tx);
+    if (!data) return studentAttemptView(attempt, exam); // 변경 없음
+
+    let updated = await tx.attempt.update({ where: { id: attempt.id }, data });
+    const wasReady = attempt.consentAt !== null && attempt.envCheckedAt !== null;
+    const isReady = updated.consentAt !== null && updated.envCheckedAt !== null;
+    if (isReady && status === 'RUNNING') {
+      const next = nextState(updated.state, 'READY', { ready: true, examRunning: true });
+      if (next !== updated.state) updated = await tx.attempt.update({ where: { id: attempt.id }, data: { state: next } });
+    }
+    const final = updated;
+    post.push(() => broadcast.toStaff(exam.id, EV.ATTEMPT_UPDATED, { attemptId: attempt.id }));
+    if (final.state !== 'WAITING') post.push(() => broadcast.attemptState(final, exam), () => broadcast.waitingCount(exam.id));
+    else if (wasReady !== isReady) post.push(() => broadcast.waitingCount(exam.id));
+    return studentAttemptView(final, exam);
+  });
+  await notifyAll(post);
+  return view;
+}
+
+/**
+ * 동의(F-08). 동의하면 consentAt을 처음 한 번만 기록하고 consentDeclined=false.
+ * 거부하면 consentDeclined=true이고 이전 동의(consentAt)는 철회되어 준비 미완료가 된다. 다시 동의하면 새로 기록된다.
+ */
+export function recordConsent(attempt: Pick<Attempt, 'id' | 'sessionTokenHash'>, agree: boolean) {
+  return updateReadiness(attempt.id, attempt.sessionTokenHash, async (cur) => {
+    if (agree) return cur.consentAt !== null && !cur.consentDeclined ? null : { consentAt: new Date(), consentDeclined: false };
+    return cur.consentDeclined && cur.consentAt === null ? null : { consentDeclined: true, consentAt: null };
+  });
+}
+
+/**
+ * 환경 점검(F-09). 동의 전이면 409 CONSENT_REQUIRED. 다중 모니터면 MULTI_MONITOR(WARN) 신호를 응시당 최대 1건만 기록한다
+ * (같은 점검을 반복 제출해도 신호가 쌓이지 않는다). 값이 그대로인 반복 제출은 아무것도 바꾸지 않는다.
+ */
+export function recordEnv(attempt: Pick<Attempt, 'id' | 'sessionTokenHash'>, env: EnvInput) {
+  return updateReadiness(attempt.id, attempt.sessionTokenHash, async (cur, tx) => {
+    if (cur.consentAt === null) throw CONSENT_REQUIRED();
+    if (env.isExtended) {
+      const existing = await tx.signal.findFirst({ where: { attemptId: cur.id, type: 'MULTI_MONITOR' }, select: { id: true } });
+      if (!existing) await tx.signal.create({ data: { attemptId: cur.id, type: 'MULTI_MONITOR', severity: 'WARN', meta: { source: 'env-check' } } });
+    }
+    if (cur.envCheckedAt !== null && cur.envBrowser === env.browser && cur.envIsExtended === env.isExtended) return null;
+    return { envBrowser: env.browser, envIsExtended: env.isExtended, envCheckedAt: new Date() };
+  });
 }
