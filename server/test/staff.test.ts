@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import request from 'supertest';
-import { compare } from 'bcryptjs';
+import { compare, hash } from 'bcryptjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app';
 import { hashPassword, signStaffToken, verifyPassword, verifyStaffToken } from '../src/auth/staffAuth';
@@ -9,10 +9,10 @@ import { createStaff, CreateStaffError } from '../../scripts/create-staff.js';
 import { makeLoginStaff, staffCookie, TEST_PASSWORD } from './helpers/auth';
 import { makeStaff, resetDb } from './helpers/db';
 
-// 로그인 때 bcrypt 비교가 실제로 몇 번 호출되는지 세기 위해 compare만 감싼다(동작은 그대로).
+// 로그인 때 bcrypt 비교·해시가 실제로 몇 번 호출되는지 세기 위해 compare·hash를 감싼다(동작은 그대로).
 vi.mock('bcryptjs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('bcryptjs')>();
-  return { ...actual, compare: vi.fn(actual.compare) };
+  return { ...actual, compare: vi.fn(actual.compare), hash: vi.fn(actual.hash) };
 });
 
 const SECRET = process.env.JWT_SECRET as string;
@@ -96,6 +96,17 @@ describe('JWT 서명·검증', () => {
     expect(() => createApp()).toThrow(/32/);
     process.env.JWT_SECRET = 'x'.repeat(32);
     expect(() => signStaffToken('abc')).not.toThrow();
+  });
+});
+
+describe('사용자 열거 방지: 더미 해시는 서버 시작 시점에 미리 계산한다', () => {
+  it('라우터를 만들 때 더미 해시를 계산한다(처음 쓸 때 계산하면, 시작 직후 없는 이메일로 첫 로그인한 요청만 느려져 계정 유무가 드러남)', async () => {
+    vi.resetModules(); // 서버를 막 시작한 상태(모듈 상태 초기화)를 재현
+    const bcrypt = await import('bcryptjs');
+    const { createStaffRouter } = await import('../src/routes/staff');
+    vi.mocked(bcrypt.hash).mockClear();
+    createStaffRouter();
+    await vi.waitFor(() => expect(vi.mocked(bcrypt.hash)).toHaveBeenCalledTimes(1));
   });
 });
 

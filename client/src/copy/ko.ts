@@ -25,6 +25,7 @@ export const t = {
     INVALID_JSON: '요청 형식이 올바르지 않습니다.',
     PAYLOAD_TOO_LARGE: '보낸 내용이 너무 큽니다.',
     BAD_REQUEST: '입력한 내용을 다시 확인해 주세요.',
+    INVALID_INPUT: '입력한 내용을 다시 확인해 주세요.',
     INTERNAL: '서버에 문제가 생겼습니다. 잠시 후 다시 시도해 주세요.',
     UNAUTHORIZED: '로그인이 필요합니다.',
     INVALID_CREDENTIALS: '이메일 또는 비밀번호가 맞지 않습니다.',
