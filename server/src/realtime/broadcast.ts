@@ -54,8 +54,16 @@ export const broadcast = {
     getIo().to(studentsRoom(exam.id)).emit(EV.EXAM_STARTED, { endsAt: exam.endsAt?.getTime() ?? null, serverNow: Date.now() });
   },
 
+  /** 세션 무효화: session:revoked를 보낸 뒤 그 응시의 소켓을 모두 끊는다(이벤트가 먼저 전달된다). */
+  revokeSession(attemptId: string): void {
+    const room = getIo().in(attemptRoom(attemptId));
+    room.emit(EV.SESSION_REVOKED, {});
+    room.disconnectSockets(true);
+  },
+
+  /** 기존 이름 호환용. revokeSession과 같다. */
   sessionRevoked(attemptId: string): void {
-    getIo().to(attemptRoom(attemptId)).emit(EV.SESSION_REVOKED, {});
+    broadcast.revokeSession(attemptId);
   },
 
   toStaff(examId: string, event: string, payload: unknown): void {

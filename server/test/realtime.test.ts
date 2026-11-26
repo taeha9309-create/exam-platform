@@ -1,3 +1,4 @@
+import { request } from 'node:http';
 import { EV } from '@exam/shared';
 import { io as connect, type Socket } from 'socket.io-client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -125,6 +126,36 @@ describe('학생 소켓 인증', () => {
     expect(await quietStaff).toBe(true);
   });
 
+  it('학생 역할의 dashboard:join은 INTERNAL이 아니라 UNAUTHORIZED', async () => {
+    const exam = await makeExam();
+    const { token } = await makeAttempt(exam.id);
+    const s = open({ auth: { sessionToken: token } });
+    await once(s, EV.ATTEMPT_STATE);
+    expect(await join(s, exam.id)).toEqual({ ok: false, code: 'UNAUTHORIZED' });
+  });
+
+  it('잘못된 학생 토큰은 유효한 교수자 쿠키가 있어도 거부(교수자로 폴백하지 않는다)', async () => {
+    const staff = await makeStaff();
+    const err = await connectError(open({ auth: { sessionToken: 'nope' }, cookie: staffCookie(staff.id) }));
+    expect(err.message).toBe('UNAUTHORIZED');
+  });
+
+  it('revokeSession은 session:revoked를 보낸 뒤 그 응시의 소켓 연결을 끊는다', async () => {
+    const exam = await makeExam();
+    const a = await makeAttempt(exam.id);
+    const b = await makeAttempt(exam.id);
+    const sa = open({ auth: { sessionToken: a.token } });
+    const sb = open({ auth: { sessionToken: b.token } });
+    await Promise.all([once(sa, EV.ATTEMPT_STATE), once(sb, EV.ATTEMPT_STATE)]);
+    const revoked = once(sa, EV.SESSION_REVOKED);
+    const closed = once(sa, 'disconnect');
+    broadcast.revokeSession(a.attempt.id);
+    await revoked;
+    await closed;
+    expect(sa.connected).toBe(false);
+    expect(sb.connected).toBe(true);
+  });
+
   it('학생이 방 이름을 보내도 방이 바뀌지 않는다(방은 서버가 정한다)', async () => {
     const examA = await makeExam();
     const examB = await makeExam();
@@ -228,14 +259,67 @@ describe('교수자 소켓 인증', () => {
   });
 });
 
+/** 핸드셰이크 GET을 직접 보낸다(브라우저의 <script src>·fetch 메타데이터 헤더를 흉내 내려고). */
+function rawGet(path: string, headers: Record<string, string> = {}) {
+  return new Promise<{ status: number; body: string }>((resolve, reject) => {
+    const req = request(`${server.url}${path}`, { headers }, (res) => {
+      let body = '';
+      res.on('data', (c) => (body += c));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+describe('JSONP·Fetch Metadata·옵션', () => {
+  const HS = '/socket.io/?EIO=4&transport=polling';
+
+  it('유효한 교수자 쿠키가 있어도 JSONP(&j=0) 핸드셰이크는 403', async () => {
+    const staff = await makeStaff();
+    const res = await rawGet(`${HS}&j=0`, { Cookie: staffCookie(staff.id) });
+    expect(res.status).toBe(403);
+    expect(res.body).not.toContain('sid');
+  });
+
+  it('Origin 없는 일반 폴링 핸드셰이크는 여전히 허용(비브라우저 클라이언트)', async () => {
+    const res = await rawGet(HS);
+    expect(res.status).toBe(200);
+  });
+
+  it('Origin 없이 Sec-Fetch-Site가 cross-site·same-site면 거부, same-origin·none은 허용', async () => {
+    expect((await rawGet(HS, { 'Sec-Fetch-Site': 'cross-site' })).status).toBe(403);
+    expect((await rawGet(HS, { 'Sec-Fetch-Site': 'same-site' })).status).toBe(403);
+    expect((await rawGet(HS, { 'Sec-Fetch-Site': 'same-origin' })).status).toBe(200);
+    expect((await rawGet(HS, { 'Sec-Fetch-Site': 'none' })).status).toBe(200);
+  });
+
+  it('클라이언트 스크립트를 서빙하지 않는다(serveClient: false)', async () => {
+    const res = await rawGet('/socket.io/socket.io.js');
+    expect(res.status).not.toBe(200);
+  });
+
+  it('dashboard:join을 페이로드 없이 ack만으로 보내도 ack를 받는다(INVALID_INPUT)', async () => {
+    const staff = await makeStaff();
+    const s = open({ cookie: staffCookie(staff.id) });
+    await connected(s);
+    const ack = (await s.timeout(2000).emitWithAck(EV.DASHBOARD_JOIN)) as { ok: boolean; code?: string };
+    expect(ack).toEqual({ ok: false, code: 'INVALID_INPUT' });
+  });
+});
+
 describe('Origin 검사(교차 출처 웹소켓 하이재킹 방어)', () => {
   it('다른 출처의 Origin은 유효한 쿠키여도 거부', async () => {
     const staff = await makeStaff();
-    const err = await connectError(open({ cookie: staffCookie(staff.id), origin: 'https://evil.example' }));
+    const s1 = open({ cookie: staffCookie(staff.id), origin: 'https://evil.example' });
+    const err = await connectError(s1);
     expect(err.message).not.toBe('');
+    expect(s1.connected).toBe(false);
     const exam = await makeExam();
     const { token } = await makeAttempt(exam.id);
-    await connectError(open({ auth: { sessionToken: token }, origin: 'http://127.0.0.1.evil.example' }));
+    const s2 = open({ auth: { sessionToken: token }, origin: 'http://127.0.0.1.evil.example' });
+    expect((await connectError(s2)).message).not.toBe('');
+    expect(s2.connected).toBe(false);
   });
 
   it('자기 출처(Host 기준)는 허용', async () => {
@@ -257,6 +341,8 @@ describe('Origin 검사(교차 출처 웹소켓 하이재킹 방어)', () => {
 
   it('Origin이 "null"인 요청은 거부', async () => {
     const staff = await makeStaff();
-    await connectError(open({ cookie: staffCookie(staff.id), origin: 'null' }));
+    const s = open({ cookie: staffCookie(staff.id), origin: 'null' });
+    expect((await connectError(s)).message).not.toBe('');
+    expect(s.connected).toBe(false);
   });
 });

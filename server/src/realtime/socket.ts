@@ -28,13 +28,18 @@ function originOf(value: string): string | null {
 /**
  * 교차 출처 웹소켓 하이재킹(CSWSH) 방어. HTTP의 originCheck(security/originCheck.ts)와 같은 규칙이다:
  * Origin이 있으면 자기 출처(스킴://Host 헤더) 또는 ALLOWED_ORIGINS와 문자열 전체가 같아야 한다. 접두사·부분 일치 없음.
- * 브라우저는 웹소켓 핸드셰이크에 Origin을 항상 붙이므로(그리고 JS가 위조할 수 없으므로), Origin이 없는 요청은
- * 브라우저가 아닌 클라이언트(테스트·curl)로 보고 허용한다. 이 요청은 피해자의 쿠키를 실어 올 수 없다.
+ * 웹소켓 핸드셰이크와 fetch/XHR 폴링은 브라우저가 Origin을 붙이지만, <script src> 요청(JSONP 폴링)은 Origin이 없고
+ * SameSite=Lax 쿠키가 실릴 수 있다. 그래서 (1) JSONP(`j` 쿼리)는 allowRequest에서 막고, (2) Origin이 없는 요청은
+ * 비브라우저 클라이언트(테스트·curl)로 보고 허용하되 Sec-Fetch-Site가 있고 same-origin·none이 아니면 거부한다.
  * (originCheck.ts의 함수를 export해 재사용하려면 그 파일 수정이 필요해 규칙만 복제했다. 규칙을 바꿀 때는 두 곳을 함께 고친다.)
  */
 function isAllowedOrigin(req: IncomingMessage): boolean {
   const originHeader = req.headers.origin;
-  if (originHeader === undefined) return true;
+  if (originHeader === undefined) {
+    const site = req.headers['sec-fetch-site'];
+    if (site === undefined) return true;
+    return site === 'same-origin' || site === 'none';
+  }
   const requestOrigin = typeof originHeader === 'string' ? originOf(originHeader) : null;
   if (!requestOrigin) return false;
 
@@ -85,6 +90,11 @@ async function authenticate(socket: Socket): Promise<SocketData | null> {
 type Ack = (res: { ok: boolean; code?: string }) => void;
 
 async function handleDashboardJoin(socket: Socket, payload: unknown, ack: unknown): Promise<void> {
+  // 페이로드 없이 emitWithAck하면 ack가 첫 인자로 들어온다.
+  if (typeof payload === 'function' && ack === undefined) {
+    ack = payload;
+    payload = undefined;
+  }
   const reply: Ack = typeof ack === 'function' ? (ack as Ack) : () => {};
   const data = socket.data as SocketData;
   // 인증된 교수자만. 학생 소켓은 어떤 방에도 이 경로로 들어갈 수 없다.
@@ -111,7 +121,14 @@ async function handleDashboardJoin(socket: Socket, payload: unknown, ack: unknow
 export function attachSocket(httpServer: HttpServer): Server {
   const io = new Server(httpServer, {
     // cors 옵션을 주지 않는다: 다른 출처에 CORS 허용 헤더를 내지 않는다(같은 출처 서비스).
-    allowRequest: (req, callback) => callback(null, isAllowedOrigin(req)),
+    serveClient: false,
+    maxHttpBufferSize: 64 * 1024,
+    connectTimeout: 10_000,
+    allowRequest: (req, callback) => {
+      // JSONP 폴링은 <script src>로 호출되어 Origin 없이 쿠키가 실린다. 응답의 sid를 공격자가 쓸 수 있으므로 끈다.
+      if (new URL(req.url ?? '/', 'http://x').searchParams.has('j')) return callback('JSONP disabled', false);
+      callback(null, isAllowedOrigin(req));
+    },
   });
 
   io.use((socket, next) => {
