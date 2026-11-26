@@ -34,6 +34,11 @@ describe('redactConnectionStrings: 오류 출력에서 접속 문자열을 가�
     expect(out).not.toMatch(/p1|p2|p3/);
   });
 
+  it('TLS Redis(rediss://)와 비밀번호가 없는 형태도 가린다', () => {
+    expect(redactConnectionStrings('x rediss://u:secret@h:6380 y')).toBe('x rediss://*** y');
+    expect(redactConnectionStrings('postgresql://user@host/db')).toBe('postgresql://***');
+  });
+
   it('접속 문자열이 없으면 그대로 둔다', () => {
     expect(redactConnectionStrings('Error: P1001 Can\'t reach database server')).toBe('Error: P1001 Can\'t reach database server');
   });
