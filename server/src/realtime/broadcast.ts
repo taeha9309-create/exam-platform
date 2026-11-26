@@ -41,10 +41,10 @@ export const broadcast = {
     getIo().to(attemptRoom(attempt.id)).emit(EV.ATTEMPT_STATE, attemptStatePayload(attempt, exam));
   },
 
-  /** 대기실 인원: ready = 대기 중(WAITING) 응시 수, total = 명단 인원. 학생 방과 교수자 방 모두에 보낸다. */
+  /** 대기실 인원: ready = 준비 완료(WAITING이고 동의+환경 점검 완료) 응시 수(SPEC F-10), total = 명단 인원. 학생 방과 교수자 방 모두에 보낸다. */
   async waitingCount(examId: string): Promise<void> {
     const [ready, total] = await Promise.all([
-      prisma.attempt.count({ where: { examId, state: 'WAITING' } }),
+      prisma.attempt.count({ where: { examId, state: 'WAITING', consentAt: { not: null }, envCheckedAt: { not: null } } }),
       prisma.rosterEntry.count({ where: { examId } }),
     ]);
     getIo().to(studentsRoom(examId)).to(staffRoom(examId)).emit(EV.WAITING_COUNT, { ready, total });

@@ -5,6 +5,7 @@ import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { generateToken, hashToken } from '../src/auth/studentSession';
 import { prisma } from '../src/db';
+import { broadcast } from '../src/realtime/broadcast';
 import { staffCookie } from './helpers/auth';
 import { makeExam, makeStaff, resetDb } from './helpers/db';
 import { startTestServer } from './helpers/server';
@@ -244,6 +245,31 @@ describe('준비 완료(F-10)', () => {
     expect(res.body.state).toBe('WAITING');
     expect(await got).toEqual({ ready: 1, total: 3 });
     expect((await reload(a.attempt.id)).state).toBe('WAITING');
+  });
+
+  it('waiting:count의 ready는 준비 완료 인원: 3명 confirm만 하면 0, 한 명 완료로 0→1, 동의 철회로 다시 0', async () => {
+    const exam = await open();
+    const list = [await makeAttempt(exam.id), await makeAttempt(exam.id), await makeAttempt(exam.id)];
+    const staff = await staffSocket(exam.id);
+    const a = list[0]!;
+    await consent(a.token);
+    let got = once<{ ready: number; total: number }>(staff, EV.WAITING_COUNT);
+    await env(a.token);
+    expect(await got).toEqual({ ready: 1, total: 3 });
+    got = once<{ ready: number; total: number }>(staff, EV.WAITING_COUNT);
+    await consent(a.token, false);
+    expect(await got).toEqual({ ready: 0, total: 3 });
+  });
+
+  it('confirm만 한 대기 인원은 ready에 세지 않는다(broadcast.waitingCount)', async () => {
+    const exam = await open();
+    await makeAttempt(exam.id);
+    await makeAttempt(exam.id);
+    await makeAttempt(exam.id);
+    const staff = await staffSocket(exam.id);
+    const got = once<{ ready: number; total: number }>(staff, EV.WAITING_COUNT);
+    await broadcast.waitingCount(exam.id);
+    expect(await got).toEqual({ ready: 0, total: 3 });
   });
 
   it('RUNNING 중 승인된 지각생(WAITING)이 준비 완료되면 ACTIVE + attempt:state', async () => {
