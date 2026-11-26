@@ -18,7 +18,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "create-staff": "tsx --env-file-if-exists=.env scripts/create-staff.ts",
     "db:up": "docker compose up -d",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "start": "node server/dist/index.js"
   },
   "devDependencies": {
     "@types/node": "^24.19.4",

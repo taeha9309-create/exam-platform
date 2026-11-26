@@ -2,6 +2,7 @@ import express, { type ErrorRequestHandler, type Express } from 'express';
 import cookieParser from 'cookie-parser';
 import { AppError } from './errors';
 import { createStaffRouter } from './routes/staff';
+import { registerClient } from './static';
 
 /** 오류 응답 형식은 항상 { error: { code, message } } (계획 1 공통 제약). 화면 문구는 클라이언트가 code로 매핑한다. */
 export function apiError(code: string, message: string) {
@@ -30,9 +31,25 @@ export const onError: ErrorRequestHandler = (err, _req, res, next) => {
   }
 };
 
-export function createApp(): Express {
+export interface AppOptions {
+  /** 빌드된 화면 폴더(client/dist). 없거나 index.html이 없으면 API만 제공한다 */
+  clientDist?: string;
+  /** 앞단 프록시 수(Railway는 1). 설정하면 X-Forwarded-For에서 클라이언트 IP를 읽는다. 프록시가 없는데 켜면 IP를 위조당할 수 있다 */
+  trustProxy?: number;
+}
+
+export function createApp(options: AppOptions = {}): Express {
   const app = express();
   app.disable('x-powered-by');
+  if (options.trustProxy) app.set('trust proxy', options.trustProxy);
+
+  // 기본 보안 헤더: 다른 사이트가 시험 화면을 iframe으로 감싸는 것(클릭재킹)과 MIME 추측을 막는다
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    next();
+  });
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 
@@ -49,6 +66,14 @@ export function createApp(): Express {
   // 위에서 처리되지 않은 /api 요청
   app.use('/api', (_req, res) => {
     res.status(404).json(apiError('NOT_FOUND', '요청한 API를 찾을 수 없습니다.'));
+  });
+
+  // 빌드된 화면(운영). API 처리 뒤에 등록해야 /api 요청이 화면으로 새지 않는다
+  if (options.clientDist) registerClient(app, options.clientDist);
+
+  // 그 밖에 처리되지 않은 요청(화면 폴더가 없을 때의 /, GET이 아닌 화면 경로 요청 등)
+  app.use((_req, res) => {
+    res.status(404).json(apiError('NOT_FOUND', '요청한 주소를 찾을 수 없습니다.'));
   });
 
   app.use(onError);
