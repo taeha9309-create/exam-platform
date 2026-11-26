@@ -1,5 +1,6 @@
+import { Prisma } from '@prisma/client';
 import request from 'supertest';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app';
 import { prisma } from '../src/db';
 import { staffCookie } from './helpers/auth';
@@ -231,6 +232,48 @@ describe('PUT /api/exams/:id/questions', () => {
       expect(res.body.error.code).toBe('NOT_DRAFT');
       expect(await prisma.question.count({ where: { examId: exam.id } })).toBe(2);
     }
+  });
+});
+
+describe('같은 시험 동시 쓰기 (#42 M1)', () => {
+  it('큰 문항 PUT 4개를 동시에 보내도 500이 없고 200 또는 409 BUSY이며 최종 상태가 일관된다', async () => {
+    const { id } = await createExam();
+    const big = (tag: string) => ({
+      questions: Array.from({ length: 100 }, (_, i) => ({ type: 'ESSAY', prompt: `${tag}-${i}-`.padEnd(4000, 'x'), points: 1 })),
+    });
+    const tags = ['A', 'B', 'C', 'D'];
+    const results = await Promise.all(tags.map((t) => put(`/api/exams/${id}/questions`).send(big(t))));
+    const statuses = results.map((r) => r.status);
+    for (const r of results) {
+      expect([200, 409], JSON.stringify(r.body).slice(0, 200)).toContain(r.status);
+      if (r.status === 409) expect(r.body.error.code).toBe('BUSY');
+    }
+    expect(statuses).toContain(200);
+    const saved = await prisma.question.findMany({ where: { examId: id }, orderBy: { position: 'asc' } });
+    expect(saved).toHaveLength(100);
+    expect(saved.map((q) => q.position)).toEqual(Array.from({ length: 100 }, (_, i) => i));
+    // 모든 문항이 같은 요청(같은 태그)에서 왔어야 한다: 요청끼리 섞이지 않는다
+    const tagsSeen = new Set(saved.map((q) => q.prompt.split('-')[0]));
+    expect(tagsSeen.size).toBe(1);
+  }, 60000);
+
+  it('트랜잭션이 P2028·P2034로 실패하면 500이 아니라 409 BUSY', async () => {
+    const { id } = await createExam();
+    for (const code of ['P2028', 'P2034']) {
+      const spy = vi.spyOn(prisma, '$transaction').mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError('timeout', { code, clientVersion: 'test' }));
+      const res = await put(`/api/exams/${id}/roster`).send({ csv: '' });
+      spy.mockRestore();
+      expect(res.status, code).toBe(409);
+      expect(res.body.error.code).toBe('BUSY');
+    }
+  });
+
+  it('보기가 매우 많은 요청은 400이고 응답이 작다(본문 1MB 한도 안의 30,000개)', async () => {
+    const { id } = await createExam();
+    const choices = Array.from({ length: 30000 }, (_, i) => ({ id: `c${i}`, text: 'x' }));
+    const res = await put(`/api/exams/${id}/questions`).send({ questions: [{ ...mcq('x'), choices }] });
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body).length).toBeLessThan(5000);
   });
 });
 

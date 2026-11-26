@@ -49,7 +49,7 @@ npm run dev            # 서버(3000) + 화면(5173) 동시 실행 → http://lo
 | `npm run build` | 화면(`client/dist`)과 서버(`server/dist`) 빌드 |
 | `npm run db:down` | PostgreSQL 종료 |
 
-개발 중에는 화면 개발 서버가 `/api`, `/socket.io` 요청을 서버(3000)로 넘긴다. 운영에서는 서버가 빌드된 화면을 같은 주소로 제공한다.
+개발 중에는 화면 개발 서버가 `/api`, `/socket.io` 요청을 서버(3000)로 넘긴다. 운영에서는 서버가 빌드된 화면을 같은 주소로 제공한다. 이 프록시는 Host를 5173으로 유지해(`changeOrigin: false`) 서버의 Origin 검사를 통과한다. 다른 출처로 화면을 열 때만 `.env`의 `ALLOWED_ORIGINS`를 설정한다.
 
 ## 브랜치와 병합
 `main`은 보호되어 있다. 작업 브랜치(`task/...`)에서 PR을 만들고, 필수 검사(`protected-files`, `review-gate`, `test`)를 통과한 뒤 **사용자가 직접 병합**한다.

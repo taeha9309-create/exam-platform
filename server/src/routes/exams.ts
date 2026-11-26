@@ -64,6 +64,31 @@ function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
 type Tx = Prisma.TransactionClient;
 
 /**
+ * 시험 행 잠금(FOR UPDATE) 트랜잭션의 대기·실행 한도. Prisma 기본값(maxWait 2초, timeout 5초)은
+ * 같은 시험에 큰 쓰기(문항 100개 × 4000자)가 몰려 순서를 기다릴 때 부족해 P2028 → 500이 났다.
+ * 대기 4건이 차례로 끝나는 시간(요청당 ~1~2초)을 넉넉히 덮도록 maxWait 10초, 실행 timeout 20초로 둔다.
+ * Task 7·감독 조치 등 같은 패턴의 트랜잭션도 이 상수와 runExamTx를 쓴다.
+ */
+export const EXAM_TX_OPTIONS = { maxWait: 10_000, timeout: 20_000 } as const;
+
+const BUSY = () => new AppError(409, 'BUSY', '다른 요청을 처리 중입니다. 잠시 후 다시 시도해 주세요.');
+
+/** P2028(트랜잭션 시작·실행 시간 초과), P2034(직렬화 실패·교착)는 재시도하면 되는 일시적 충돌이다. */
+function isTransientTxError(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && (err.code === 'P2028' || err.code === 'P2034');
+}
+
+/** 한도가 명시된 트랜잭션. 그래도 일시적 충돌이면 500 대신 409 BUSY(다시 시도 가능)로 바꾼다. */
+async function runExamTx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  try {
+    return await prisma.$transaction(fn, EXAM_TX_OPTIONS);
+  } catch (err) {
+    if (isTransientTxError(err)) throw BUSY();
+    throw err;
+  }
+}
+
+/**
  * 시험 행을 잠그고(SELECT ... FOR UPDATE) 상태를 읽는다. 상태 확인과 변경 사이에 다른 요청(예: 입장 열기)이
  * 끼어들어 "DRAFT였는데 저장 직전에 OPEN이 된" 경쟁 상태를 막는다. 반드시 트랜잭션 안에서 호출한다.
  */
@@ -176,7 +201,7 @@ export function createExamsRouter(): Router {
       const id = parseId(req);
       const body = parseBody(patchSchema, req.body);
       const onlyLock = Object.entries(body).every(([k, v]) => v === undefined || k === 'lockNewEntry');
-      await prisma.$transaction(async (tx) => {
+      await runExamTx(async (tx) => {
         const { status } = await lockExam(tx, id);
         if (status === 'ENDED') {
           throw onlyLock
@@ -200,7 +225,7 @@ export function createExamsRouter(): Router {
     '/:id',
     wrap(async (req, res) => {
       const id = parseId(req);
-      await prisma.$transaction(async (tx) => {
+      await runExamTx(async (tx) => {
         const { status } = await lockExam(tx, id);
         if (status !== 'DRAFT' && status !== 'ENDED') {
           throw new AppError(409, 'INVALID_TRANSITION', '준비 중이거나 종료된 시험만 삭제할 수 있습니다.');
@@ -219,7 +244,7 @@ export function createExamsRouter(): Router {
       const parsed = parseQuestionsInput(body.questions);
       if (!parsed.ok) return sendInvalidWithDetails(res, parsed.errors);
       const { questions } = parsed;
-      await prisma.$transaction(async (tx) => {
+      await runExamTx(async (tx) => {
         const { status } = await lockExam(tx, id);
         if (status !== 'DRAFT') throw NOT_DRAFT();
         // 전체 교체: 기존 문항을 지우고 position 순서대로 다시 만든다(한 트랜잭션이라 중간 상태가 보이지 않는다)
@@ -250,7 +275,7 @@ export function createExamsRouter(): Router {
       const body = parseBody(rosterBodySchema, req.body);
       const parsed = parseRosterCsv(body.csv);
       if (!parsed.ok) return sendInvalidWithDetails(res, parsed.errors);
-      await prisma.$transaction(async (tx) => {
+      await runExamTx(async (tx) => {
         const { status } = await lockExam(tx, id);
         if (status !== 'DRAFT') throw NOT_DRAFT();
         await tx.rosterEntry.deleteMany({ where: { examId: id } });
