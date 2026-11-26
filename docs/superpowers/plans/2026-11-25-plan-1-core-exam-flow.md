@@ -347,12 +347,14 @@
 
 ### Task 17a: 뼈대 초기 배포 (Task 2 직후 수행)
 
+> **계획 변경(2026-11-26):** Railway가 `railway.json`/`railway.toml`(Config as Code)을 폐지해 **2026-12-01에 읽기를 중단**하고 새 서비스는 쓸 수 없다(공식 문서 확인). 그래서 설정 파일을 만들지 않고 **서비스 설정(대시보드)**과 표준 스크립트로 구성한다: 루트 `package.json`의 `build`·`start`, 마이그레이션은 **Pre-deploy Command**(`npm run db:deploy -w @exam/server`). 17b의 정적 제공·`trust proxy`·PORT 검증도 17a에서 함께 구현했다(`server/src/static.ts`, `config.ts`).
+
 **Files:**
-- Create: `railway.json`(빌드 `npm ci && npm run build`, 시작 `npx prisma migrate deploy -w server && node server/dist/index.js`)
-- Modify: `README.md`(배포 절차 초안)
+- Create: `server/src/static.ts`, `server/src/config.ts`, `.node-version`, `server/test/static.test.ts`, `server/test/config.test.ts` (~~`railway.json`~~ 사용하지 않음)
+- Modify: `package.json`(`start` 스크립트), `server/src/app.ts`(`createApp(options)`: 화면 제공·보안 헤더·`trust proxy`), `server/src/index.ts`(PORT 검증), `README.md`(배포 절차)
 
 **Interfaces:**
-- Produces: 배포 URL(HTTPS)에서 `GET /api/health` 200. PRD 7.1 "1주차 초기 배포"(G1).
+- Produces: 배포 URL(HTTPS)에서 `GET /api/health` 200, `GET /`는 화면. PRD 7.1 "1주차 초기 배포"(G1).
 
 - [ ] **Step 1:** Railway 프로젝트에 웹 서비스 + PostgreSQL 추가(계정·결제 정보는 사용자가 직접), 환경변수 `DATABASE_URL`, `JWT_SECRET`, `NODE_ENV=production` 설정
 - [ ] **Step 2:** 배포 후 `curl https://<배포 URL>/api/health` → `{"ok":true}`, 마이그레이션 로그에 오류 없음
@@ -361,8 +363,8 @@
 ### Task 17b: 전체 배포 (Railway)
 
 **Files:**
-- Create: `railway.json` 또는 `nixpacks.toml`(빌드: `npm ci && npm run build`, 시작: `npx prisma migrate deploy -w server && node server/dist/index.js`), `server/src/static.ts`
-- Modify: `server/src/app.ts`(운영에서 `client/dist` 정적 제공 + SPA 폴백, `trust proxy` 설정으로 레이트 리밋 IP 정확화), `README.md`(배포 절차), `docs/STUDY.md`(배포 절 초안)
+- (정적 제공·`trust proxy`·배포 설정 파일은 **17a에서 완료**, 이 작업에서는 데모 데이터와 전체 배포 검증만 한다)
+- Modify: `README.md`(배포 절차 보완), `docs/STUDY.md`(배포 절)
 
 **Interfaces:**
 - Produces: 배포 URL(HTTPS). 환경변수 `DATABASE_URL`, `JWT_SECRET`, `NODE_ENV=production`, `DEMO_STAFF_PASSWORD`, `DEMO_PASSCODE`.

@@ -53,3 +53,27 @@ npm run dev            # 서버(3000) + 화면(5173) 동시 실행 → http://lo
 
 ## 브랜치와 병합
 `main`은 보호되어 있다. 작업 브랜치(`task/...`)에서 PR을 만들고, 필수 검사(`protected-files`, `review-gate`, `test`)를 통과한 뒤 **사용자가 직접 병합**한다.
+
+## 배포 (Railway)
+**설정 파일(`railway.json`)을 쓰지 않습니다.** Railway가 이 방식을 폐지해서 2026-12-01부터 파일을 읽지 않고 새 서비스는 아예 쓸 수 없기 때문입니다. 대신 서비스 설정(대시보드)과 이 저장소의 표준 스크립트(`npm run build`, `npm start`)를 씁니다. 운영에서는 서버 하나가 **화면·API·실시간 통신을 같은 주소**로 제공합니다.
+
+1. [railway.com](https://railway.com)에 GitHub 계정으로 가입하고 결제 수단을 등록합니다(사용량 과금, 이 규모에서는 월 5달러 안팎 예상).
+2. **New Project → Deploy from GitHub repo → exam-platform**
+3. 같은 프로젝트에서 **+ New → Database → PostgreSQL** 추가 (서비스 이름이 `Postgres`인지 확인)
+4. 앱 서비스 **Variables**:
+   | 변수 | 값 |
+   |---|---|
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (Postgres 서비스의 값을 참조) |
+   | `JWT_SECRET` | 직접 만든 긴 무작위 문자열(32자 이상, 공개 금지): `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` |
+   | `NODE_ENV` | `production` |
+5. 앱 서비스 **Settings**:
+   | 항목 | 값 |
+   |---|---|
+   | Build Command | `npm run build` |
+   | Start Command | `npm start` |
+   | Pre-deploy Command | `npm run db:deploy -w @exam/server` — 새 버전이 뜨기 전에 DB 마이그레이션을 적용하고, **실패하면 배포를 중단**합니다 |
+   | Healthcheck Path (보이면) | `/api/health` |
+6. **Settings → Networking → Generate Domain**으로 주소를 만듭니다.
+7. 확인: `https://<도메인>/api/health` → `{"ok":true}`, `https://<도메인>/` → 화면
+
+`PORT`는 Railway가 자동으로 넣어 주고, Node 버전은 `package.json`의 `engines`와 `.node-version`으로 지정합니다(빌드 로그에서 24가 쓰였는지 확인하세요). 프록시 뒤에서 클라이언트 IP를 읽도록 운영(`NODE_ENV=production`)에서만 `trust proxy`가 켜집니다.
