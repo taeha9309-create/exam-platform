@@ -71,16 +71,29 @@ export function clearStaffCookie(res: Response): void {
   res.clearCookie(STAFF_COOKIE, staffCookieOptions());
 }
 
+export interface AuthenticatedStaff {
+  id: string;
+  name: string;
+  email: string;
+}
+
+/**
+ * 교수자 인증의 단일 구현(HTTP requireStaff와 Socket.IO가 함께 쓴다).
+ * raw(쿠키 값, 타입 미확인) → 문자열인지 검사 → HS256 서명·만료 검증 → DB에서 교수자 재조회(삭제된 계정은 거부).
+ * 실패하면 null. 비밀키 설정 오류나 DB 오류만 예외로 던진다.
+ */
+export async function authenticateStaff(raw: unknown): Promise<AuthenticatedStaff | null> {
+  const verified = typeof raw === 'string' ? verifyStaffToken(raw) : null;
+  if (!verified) return null;
+  return prisma.staff.findUnique({ where: { id: verified.staffId }, select: { id: true, name: true, email: true } });
+}
+
 /**
  * 교수자 전용 API 보호. 토큰은 쿠키로만 받고(헤더·쿼리·본문 무시),
  * 토큰이 유효해도 DB에서 교수자를 다시 조회한다(삭제된 계정은 거부).
  */
 export const requireStaff: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
-  const raw: unknown = req.cookies?.[STAFF_COOKIE];
-  const verified = typeof raw === 'string' ? verifyStaffToken(raw) : null;
-  if (!verified) return next(new AppError(401, 'UNAUTHORIZED', '로그인이 필요합니다.'));
-  prisma.staff
-    .findUnique({ where: { id: verified.staffId }, select: { id: true, name: true, email: true } })
+  authenticateStaff(req.cookies?.[STAFF_COOKIE])
     .then((staff) => {
       if (!staff) return next(new AppError(401, 'UNAUTHORIZED', '로그인이 필요합니다.'));
       req.staff = staff;
