@@ -42,6 +42,15 @@ describe('safeString', () => {
   });
 });
 
+describe('길이 단위', () => {
+  it('길이는 code point(글자) 기준이다: 이모지 51개는 max 100을 통과, 101개는 거부', () => {
+    const s = safeString({ min: 1, max: 100 });
+    expect(s.safeParse('😀'.repeat(51)).success).toBe(true);
+    expect(s.safeParse('😀'.repeat(100)).success).toBe(true);
+    expect(s.safeParse('😀'.repeat(101)).success).toBe(false);
+  });
+});
+
 describe('판별 함수', () => {
   it('hasControlChars', () => {
     expect(hasControlChars(`x${NUL}`, false)).toBe(true);
