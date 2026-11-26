@@ -1,7 +1,9 @@
 import express, { type ErrorRequestHandler, type Express } from 'express';
 import cookieParser from 'cookie-parser';
 import { AppError } from './errors';
+import { createAttemptsRouter } from './routes/attempts';
 import { createExamsRouter } from './routes/exams';
+import { createStudentRouter } from './routes/student';
 import { createStaffRouter, type StaffRouterOptions } from './routes/staff';
 import { originCheck } from './security/originCheck';
 import { registerClient } from './static';
@@ -66,6 +68,9 @@ export function createApp(options: AppOptions = {}): Express {
   app.use('/api/staff', createStaffRouter(options.staff));
 
   app.use('/api/exams', createExamsRouter());
+
+  app.use('/api', createStudentRouter());
+  app.use('/api/attempts', createAttemptsRouter());
 
   // ── 라우터 등록 위치 ─────────────────────────────────────────────
   // Task 4~12의 라우터는 이 줄 위에 app.use('/api/...', router)로 추가한다(병합은 Coordinator).
