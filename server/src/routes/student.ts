@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { findAttemptByToken } from '../auth/studentSession';
 import { prisma } from '../db';
 import { AppError } from '../errors';
-import { confirmEntry, createEntryGuard, studentAttemptView, verifyEntry, type EntryGuardOptions } from '../services/entry';
+import { confirmEntry, createEntryGuard, recordConsent, recordEnv, studentAttemptView, verifyEntry, type EntryGuardOptions } from '../services/entry';
 import { safeString } from '../validation';
 
 const MAX_TOKEN_LENGTH = 128;
@@ -17,6 +17,9 @@ const entrySchema = z.object({
   passcode: safeString({ min: 1, max: 64 }),
 });
 const confirmSchema = entrySchema.extend({ sessionToken: safeString({ min: 0, max: MAX_TOKEN_LENGTH }).optional() });
+
+const consentSchema = z.strictObject({ agree: z.boolean() });
+const envSchema = z.strictObject({ browser: z.enum(['chrome', 'edge']), isExtended: z.boolean(), fullscreen: z.literal(true) });
 
 function wrap(fn: (req: Request, res: Response) => Promise<void>): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -108,6 +111,28 @@ export function createStudentRouter(options: StudentRouterOptions = {}): Router 
     const attempt = req.studentAttempt!;
     res.json(studentAttemptView(attempt, attempt.exam));
   });
+
+  // 동의·환경 점검: 학생 세션 토큰 필수. 인증된 학생의 멱등한 쓰기라 별도 빈도 제한은 두지 않는다
+  // (값이 같으면 DB 쓰기·알림이 없고, MULTI_MONITOR 신호는 응시당 1건).
+  router.post(
+    '/student/consent',
+    requireStudent,
+    wrap(async (req, res) => {
+      const parsed = consentSchema.safeParse(req.body);
+      if (!parsed.success) throw INVALID_INPUT();
+      res.json(await recordConsent(req.studentAttempt!, parsed.data.agree));
+    }),
+  );
+
+  router.post(
+    '/student/env',
+    requireStudent,
+    wrap(async (req, res) => {
+      const parsed = envSchema.safeParse(req.body);
+      if (!parsed.success) throw INVALID_INPUT();
+      res.json(await recordEnv(req.studentAttempt!, { browser: parsed.data.browser, isExtended: parsed.data.isExtended }));
+    }),
+  );
 
   return router;
 }

@@ -188,6 +188,8 @@ describe('학생 소켓 인증', () => {
     const staff = await makeStaff();
     const exam = await makeExam({ ownerId: staff.id });
     const a = await makeAttempt(exam.id);
+    // ready는 준비 완료(동의+환경 점검) 인원이다(SPEC F-10)
+    await prisma.attempt.update({ where: { id: a.attempt.id }, data: { consentAt: new Date(), envCheckedAt: new Date() } });
     const sa = open({ auth: { sessionToken: a.token } });
     await once(sa, EV.ATTEMPT_STATE);
     const st = open({ cookie: staffCookie(staff.id) });
