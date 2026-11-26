@@ -17,7 +17,9 @@ vi.mock('bcryptjs', async (importOriginal) => {
 
 const SECRET = process.env.JWT_SECRET as string;
 const ORIGINAL_ENV = { ...process.env };
-const app = createApp();
+// 이 파일의 테스트는 같은 앱으로 로그인을 수백 번 반복하므로 시도 제한을 사실상 끈다(제한 자체는 loginProtection.test.ts).
+const LOOSE = { windowMs: 60_000, max: 1_000_000 };
+const app = createApp({ staff: { loginProtection: { ip: LOOSE, account: LOOSE, maxConcurrentVerifications: 1000 } } });
 
 function restoreEnv(key: 'NODE_ENV' | 'JWT_SECRET') {
   if (ORIGINAL_ENV[key] === undefined) delete process.env[key];
