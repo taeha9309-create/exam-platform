@@ -91,7 +91,14 @@ export function createStudentRouter(options: StudentRouterOptions = {}): Router 
       const token = sessionToken || undefined;
       const input = { ...rest, studentNo: rest.studentNo.trim(), passcode: rest.passcode.trim() };
       const verified = await guard.run(req.ip, res, () => verifyEntry(input, token));
-      const out = await confirmEntry(verified, token);
+      let out;
+      try {
+        out = await confirmEntry(verified, token);
+      } catch (err) {
+        // 토큰만으로 통과한 요청이 경쟁(승인·거절 직후)으로 ENTRY_FAILED가 되어도 실패 한도에 센다.
+        if (err instanceof AppError && err.code === 'ENTRY_FAILED') guard.fail(req.ip);
+        throw err;
+      }
       if (out.kind === 'session') res.json({ sessionToken: out.sessionToken, attempt: out.attempt });
       else res.json({ status: 'DUPLICATE_PENDING', ...(out.pendingToken ? { pendingToken: out.pendingToken } : {}) });
     }),

@@ -1,5 +1,5 @@
 import cookieParser from 'cookie-parser';
-import express, { type Express } from 'express';
+import express, { type Express, type Response } from 'express';
 import type { Exam } from '@prisma/client';
 import type { Server } from 'socket.io';
 import request from 'supertest';
@@ -10,7 +10,7 @@ import { prisma } from '../src/db';
 import { setIo } from '../src/realtime/broadcast';
 import { createAttemptsRouter } from '../src/routes/attempts';
 import { createStudentRouter } from '../src/routes/student';
-import { confirmOnce } from '../src/services/entry';
+import { confirmOnce, createEntryGuard } from '../src/services/entry';
 import type { RateLimiterOptions } from '../src/security/rateLimit';
 import { staffCookie } from './helpers/auth';
 import { makeExam, makeStaff, resetDb } from './helpers/db';
@@ -230,22 +230,84 @@ describe('POST /api/student/confirm', () => {
     expect(await prisma.attempt.count()).toBe(1);
   });
 
-  it('다른 토큰·토큰 없음은 DUPLICATE_PENDING + pendingToken, 감독관에게 DUPLICATE 요청', async () => {
+  it('다른 토큰·토큰 없음은 DUPLICATE_PENDING + pendingToken, 감독관에게 DUPLICATE 요청 1회', async () => {
     const exam = await openExam();
     const first = await confirm(body(exam));
-    for (const extra of [{ sessionToken: 'other-token' }, {}]) {
-      const res = await confirm(body(exam, extra));
-      expect(res.status).toBe(200);
-      expect(res.body.status).toBe('DUPLICATE_PENDING');
-      expect(res.body.pendingToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
-      const row = await prisma.attempt.findUniqueOrThrow({ where: { id: first.body.attempt.id } });
-      expect(row.pendingTokenHash).toBe(hashToken(res.body.pendingToken));
-      expect(row.sessionTokenHash).toBe(hashToken(first.body.sessionToken)); // 기존 세션은 승인 전까지 그대로
-    }
+    const res = await confirm(body(exam, { sessionToken: 'other-token' }));
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('DUPLICATE_PENDING');
+    expect(res.body.pendingToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const row = await prisma.attempt.findUniqueOrThrow({ where: { id: first.body.attempt.id } });
+    expect(row.pendingTokenHash).toBe(hashToken(res.body.pendingToken));
+    expect(row.sessionTokenHash).toBe(hashToken(first.body.sessionToken)); // 기존 세션은 승인 전까지 그대로
     const ev = staffEvents('approval:pending');
-    expect(ev).toHaveLength(2);
+    expect(ev).toHaveLength(1);
     expect(ev[0]).toMatchObject({ room: `exam:${exam.id}:staff`, payload: { attemptId: first.body.attempt.id, kind: 'DUPLICATE' } });
     expect((await me(first.body.sessionToken)).status).toBe(200);
+  });
+
+  it('이미 대기 요청이 있으면 새 요청은 409 APPROVAL_ALREADY_PENDING: 덮어쓰기·DB 쓰기·알림 없음', async () => {
+    const exam = await openExam();
+    const first = await confirm(body(exam));
+    const p1 = await confirm(body(exam));
+    const before = await prisma.attempt.findUniqueOrThrow({ where: { id: first.body.attempt.id } });
+    emitted.length = 0;
+    for (const extra of [{}, { sessionToken: 'attacker-token' }]) {
+      const res = await confirm(body(exam, extra));
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('APPROVAL_ALREADY_PENDING');
+      expect(JSON.stringify(res.body)).not.toMatch(/Hash|rejected|[0-9a-f]{32}/);
+    }
+    const after = await prisma.attempt.findUniqueOrThrow({ where: { id: first.body.attempt.id } });
+    expect(after.pendingTokenHash).toBe(before.pendingTokenHash);
+    expect(after.pendingTokenHash).toBe(hashToken(p1.body.pendingToken));
+    expect(emitted).toHaveLength(0);
+    // 대기 토큰 소지자는 기존대로 폴링
+    const poll = await confirm(body(exam, { sessionToken: p1.body.pendingToken }));
+    expect(poll.status).toBe(200);
+    expect(poll.body.status).toBe('DUPLICATE_PENDING');
+  });
+
+  it('가로채기 방지: B의 요청은 409이고, 승인하면 P1(진짜 사용자)이 세션이 된다', async () => {
+    const exam = await openExam();
+    const first = await confirm(body(exam));
+    const p1 = await confirm(body(exam));
+    expect((await confirm(body(exam))).status).toBe(409);
+    expect((await act(first.body.attempt.id, { type: 'APPROVE_SESSION', reason: '현장 확인 완료' })).status).toBe(200);
+    expect((await me(p1.body.pendingToken)).status).toBe(200);
+  });
+
+  it('거절 표시(rejected:) 뒤에는 새 요청이 허용된다(새 pendingToken, 알림 1회)', async () => {
+    const exam = await openExam();
+    const first = await confirm(body(exam));
+    const p1 = await confirm(body(exam));
+    await act(first.body.attempt.id, { type: 'REJECT_SESSION', reason: '거절' });
+    emitted.length = 0;
+    const p2 = await confirm(body(exam));
+    expect(p2.status).toBe(200);
+    expect(p2.body.pendingToken).not.toBe(p1.body.pendingToken);
+    expect(staffEvents('approval:pending')).toHaveLength(1);
+    expect((await confirm(body(exam, { sessionToken: p1.body.pendingToken }))).status).toBe(409); // 이전 토큰은 이제 일반 요청 취급 -> 대기 중이라 409
+  });
+
+  it('토큰 면제는 학번만 바꾼 요청에는 적용되지 않는다(401, 한도에 셈)', async () => {
+    const limited = makeApp({ windowMs: 60_000, max: 2, maxKeys: 100 });
+    const exam = await openExam();
+    const a = await confirm(body(exam), limited);
+    for (let i = 0; i < 2; i++) {
+      const res = await confirm(body(exam, { studentNo: '20260002', passcode: '000000', sessionToken: a.body.sessionToken }), limited);
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('ENTRY_FAILED');
+    }
+    expect((await confirm(body(exam, { studentNo: '20260002', passcode: '000000', sessionToken: a.body.sessionToken }), limited)).status).toBe(429);
+  });
+
+  it('guard.fail()로 기록한 실패도 한도에 센다', async () => {
+    const g = createEntryGuard({ windowMs: 60_000, max: 2, maxKeys: 10 });
+    const res = { setHeader: () => undefined } as unknown as Response;
+    g.fail('1.2.3.4');
+    g.fail('1.2.3.4');
+    await expect(g.run('1.2.3.4', res, async () => 1)).rejects.toMatchObject({ status: 429 });
   });
 
   it('pendingToken은 승인 전에는 세션이 아니다(HTTP·소켓 인증 모두 거부)', async () => {
@@ -426,28 +488,40 @@ describe('POST /api/student/confirm', () => {
   it('같은 학생의 동시 confirm 12건에서도 응시는 1개만 생긴다', async () => {
     const exam = await openExam();
     const results = await Promise.all(Array.from({ length: 12 }, () => confirm(body(exam))));
-    for (const r of results) expect(r.status).toBe(200);
     expect(await prisma.attempt.count({ where: { examId: exam.id } })).toBe(1);
     expect(results.filter((r) => typeof r.body.sessionToken === 'string')).toHaveLength(1);
-    expect(results.filter((r) => r.body.status === 'DUPLICATE_PENDING')).toHaveLength(11);
+    expect(results.filter((r) => r.body.status === 'DUPLICATE_PENDING')).toHaveLength(1);
+    const rest = results.filter((r) => r.status === 409);
+    expect(rest).toHaveLength(10);
+    for (const r of rest) expect(r.body.error.code).toBe('APPROVAL_ALREADY_PENDING');
+    expect(staffEvents('approval:pending').filter((e) => (e.payload as { kind: string }).kind === 'DUPLICATE')).toHaveLength(1);
+    expect((await prisma.attempt.findFirstOrThrow({ where: { examId: exam.id } })).pendingTokenHash).not.toBeNull();
   }, 30_000);
 
   it('프로세스 내 줄 세우기 없이 DB 잠금만으로도 동시 생성이 1개로 수렴한다(서버 여러 대 가정)', async () => {
     const exam = await openExam();
     const roster = await prisma.rosterEntry.findFirstOrThrow({ where: { examId: exam.id, studentNo: '20260001' } });
     const verified = { exam, roster, viaPasscode: true };
-    const outs = await Promise.all(Array.from({ length: 6 }, () => confirmOnce(verified, undefined)));
+    const outs = await Promise.allSettled(Array.from({ length: 6 }, () => confirmOnce(verified, undefined)));
     expect(await prisma.attempt.count({ where: { examId: exam.id } })).toBe(1);
-    expect(outs.filter((o) => o.result.kind === 'session')).toHaveLength(1);
-    expect(outs.filter((o) => o.result.kind === 'pending')).toHaveLength(5);
+    const ok = outs.flatMap((o) => (o.status === 'fulfilled' ? [o.value] : []));
+    const rejected = outs.flatMap((o) => (o.status === 'rejected' ? [o.reason as { code?: string }] : []));
+    // 하나는 응시 생성, 하나만 대기 요청 생성(DB 잠금 안에서), 나머지는 409
+    expect(ok.filter((o) => o.result.kind === 'session')).toHaveLength(1);
+    expect(ok.filter((o) => o.result.kind === 'pending')).toHaveLength(1);
+    expect(rejected).toHaveLength(4);
+    for (const r of rejected) expect(r.code).toBe('APPROVAL_ALREADY_PENDING');
+    expect(ok.flatMap((o) => o.post)).toHaveLength(2); // 생성 알림(waitingCount) 1 + DUPLICATE 알림 1
   }, 30_000);
 
   it('RUNNING에서 같은 학생의 동시 confirm도 응시 1개, LATE 요청 1건', async () => {
     const exam = await runningExam();
     const results = await Promise.all(Array.from({ length: 8 }, () => confirm(body(exam))));
-    for (const r of results) expect(r.status).toBe(200);
+    for (const r of results) expect([200, 409]).toContain(r.status);
+    expect(results.filter((r) => r.status === 200)).toHaveLength(2); // 생성 1 + 대기 요청 1, 나머지는 409
     expect(await prisma.attempt.count({ where: { examId: exam.id } })).toBe(1);
     expect(staffEvents('approval:pending').filter((e) => (e.payload as { kind: string }).kind === 'LATE')).toHaveLength(1);
+    expect(staffEvents('approval:pending').filter((e) => (e.payload as { kind: string }).kind === 'DUPLICATE')).toHaveLength(1);
   }, 30_000);
 });
 

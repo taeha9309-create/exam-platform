@@ -28,6 +28,7 @@ const ENTRY_CLOSED = () => new AppError(403, 'ENTRY_CLOSED', '입장이 마감�
 const ENTRY_REJECTED = () => new AppError(403, 'ENTRY_REJECTED', '입장이 거절되었습니다.');
 const ATTEMPT_FINISHED = () => new AppError(409, 'ATTEMPT_FINISHED', '이미 종료된 응시입니다.');
 const NOT_FOUND_ATTEMPT = () => new AppError(404, 'NOT_FOUND', '응시를 찾을 수 없습니다.');
+const ALREADY_PENDING = () => new AppError(409, 'APPROVAL_ALREADY_PENDING', '이미 감독관 승인을 기다리는 접속 요청이 있습니다.');
 const INVALID_STATE = () => new AppError(409, 'INVALID_STATE', '현재 상태에서는 처리할 수 없는 요청입니다.');
 
 const TERMINAL = new Set(['SUBMITTED', 'TERMINATED', 'REJECTED']);
@@ -47,6 +48,8 @@ export interface EntryGuard {
    * 이미 한도를 넘었으면 verify(DB 조회)를 실행하지 않고 429를 던진다. verify가 ENTRY_FAILED로 실패하면 실패를 센다(성공은 세지 않는다).
    */
   run<T>(ip: string | undefined, res: Response, verify: () => Promise<T>): Promise<T>;
+  /** guard.run 밖에서 난 ENTRY_FAILED(예: 토큰만으로 통과한 뒤 경쟁으로 실패)도 실패로 센다. */
+  fail(ip: string | undefined): void;
 }
 
 /**
@@ -67,6 +70,9 @@ export function createEntryGuard(options: EntryGuardOptions = {}): EntryGuard {
   };
 
   return {
+    fail(ip) {
+      limiter.hit(normalizeIpKey(ip));
+    },
     async run(ip, res, verify) {
       const key = normalizeIpKey(ip);
       // 1) 메모리 조회만으로 거절(DB 없음)
@@ -262,6 +268,10 @@ export async function confirmOnce(verified: Verified, token: string | undefined)
 
     // 다른 토큰·토큰 없음: 중복 접속 요청. 토큰 소지로만 확인된 요청은 여기까지 올 수 없지만 방어한다.
     if (!viaPasscode) throw ENTRY_FAILED();
+    // 이미 대기 요청이 있으면(거절 표시가 아닌 값) 덮어쓰지 않는다: 비밀번호만 아는 다른 학생이 진짜 사용자의 대기 요청을
+    // 가로채 감독관 승인을 자기 토큰으로 넘기거나, 성공 경로로 감독관 알림을 무제한 만드는 것을 막는다.
+    // 대기 토큰 소지자는 위에서 이미 폴링으로 처리되었다. DB 쓰기·알림 없이 거절한다.
+    if (attempt.pendingTokenHash && !attempt.pendingTokenHash.startsWith(REJECTED_PREFIX)) throw ALREADY_PENDING();
     const pendingToken = generateToken();
     await tx.attempt.update({ where: { id: attempt.id }, data: { pendingTokenHash: hashToken(pendingToken) } });
     post.push(() => broadcast.toStaff(exam.id, 'approval:pending', { attemptId: attempt.id, kind: 'DUPLICATE' }));
