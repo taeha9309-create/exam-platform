@@ -248,10 +248,12 @@ describe('GET /api/staff/me', () => {
   });
 });
 
-describe('POST /api/staff/logout', () => {
-  it('같은 속성(HttpOnly, SameSite=Lax, Path=/)으로 쿠키를 지운다', async () => {
-    const res = await request(app).post('/api/staff/logout');
+describe('POST /api/staff/logout (SPEC 7.1: 교수자 인증 필요)', () => {
+  it('로그인한 교수자는 같은 속성(HttpOnly, SameSite=Lax, Path=/)으로 쿠키를 지운다', async () => {
+    const staff = await makeLoginStaff();
+    const res = await request(app).post('/api/staff/logout').set('Cookie', staffCookie(staff.id));
     expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
     const c = setCookieOf(res);
     expect(c).toMatch(/^staff_token=;/);
     expect(c).toMatch(/Expires=Thu, 01 Jan 1970/);
@@ -261,11 +263,56 @@ describe('POST /api/staff/logout', () => {
     expect(c).not.toMatch(/;\s*Secure/i);
   });
 
+  it('인증 없는 요청은 401이고 쿠키를 지우지 않는다(교차 사이트에서 감독관을 강제 로그아웃시키는 공격 방지)', async () => {
+    const res = await request(app).post('/api/staff/logout');
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('UNAUTHORIZED');
+    expect(res.headers['set-cookie']).toBeUndefined();
+  });
+
+  it('만료되었거나 위조된 토큰도 401이고 쿠키를 지우지 않는다', async () => {
+    const forged = jwt.sign({}, 'another-secret-another-secret-another-secret', { algorithm: 'HS256', subject: 'x' });
+    const res = await request(app).post('/api/staff/logout').set('Cookie', `staff_token=${forged}`);
+    expect(res.status).toBe(401);
+    expect(res.headers['set-cookie']).toBeUndefined();
+  });
+
+  it('삭제된 계정의 토큰도 401', async () => {
+    const staff = await makeLoginStaff();
+    await prisma.staff.delete({ where: { id: staff.id } });
+    const res = await request(app).post('/api/staff/logout').set('Cookie', staffCookie(staff.id));
+    expect(res.status).toBe(401);
+  });
+
   it('production에서는 지우는 쿠키에도 Secure가 붙는다', async () => {
+    const staff = await makeLoginStaff();
     process.env.NODE_ENV = 'production';
     process.env.JWT_SECRET = 'p'.repeat(40);
-    const res = await request(app).post('/api/staff/logout');
+    const res = await request(app).post('/api/staff/logout').set('Cookie', staffCookie(staff.id));
     expect(setCookieOf(res)).toMatch(/;\s*Secure/i);
+  });
+});
+
+describe('로그인 입력의 제어 문자(NUL 등)', () => {
+  it('이메일·비밀번호에 제어 문자가 있으면 500이 아니라 400 INVALID_INPUT(DB 오류·로그 범람 방지)', async () => {
+    for (const body of [
+      { email: 'prof@test.local ', password: 'x' },
+      { email: 'prof @test.local', password: 'x' },
+      { email: 'prof@test.local', password: 'pw x' },
+      { email: 'a@test.local', password: 'x' },
+      { email: 'a@test.local', password: 'x' },
+    ]) {
+      const res = await request(app).post('/api/staff/login').send(body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(res.body.error.code).toBe('INVALID_INPUT');
+      expect(res.headers['set-cookie']).toBeUndefined();
+    }
+  });
+
+  it('일반 문자와 한글·공백이 든 비밀번호는 여전히 허용된다', async () => {
+    await makeLoginStaff({ email: 'ok@test.local' }, '한글 비밀번호 with space 123');
+    const res = await request(app).post('/api/staff/login').send({ email: 'ok@test.local', password: '한글 비밀번호 with space 123' });
+    expect(res.status).toBe(200);
   });
 });
 
