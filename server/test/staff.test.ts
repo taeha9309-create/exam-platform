@@ -296,11 +296,11 @@ describe('POST /api/staff/logout (SPEC 7.1: 교수자 인증 필요)', () => {
 describe('로그인 입력의 제어 문자(NUL 등)', () => {
   it('이메일·비밀번호에 제어 문자가 있으면 500이 아니라 400 INVALID_INPUT(DB 오류·로그 범람 방지)', async () => {
     for (const body of [
-      { email: 'prof@test.local ', password: 'x' },
-      { email: 'prof @test.local', password: 'x' },
-      { email: 'prof@test.local', password: 'pw x' },
-      { email: 'a@test.local', password: 'x' },
-      { email: 'a@test.local', password: 'x' },
+      { email: 'prof@test.local\u0000', password: 'x' },
+      { email: 'prof\u0000@test.local', password: 'x' },
+      { email: 'prof@test.local', password: 'pw\u0000x' },
+      { email: 'a\u0001@test.local', password: 'x' },
+      { email: 'a\u007f@test.local', password: 'x' },
     ]) {
       const res = await request(app).post('/api/staff/login').send(body);
       expect(res.status, JSON.stringify(body)).toBe(400);
