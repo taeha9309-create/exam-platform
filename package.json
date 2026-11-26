@@ -16,6 +16,7 @@
     "build": "npm run build -w client && npm run build -w server",
     "test": "npm test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "create-staff": "tsx --env-file-if-exists=.env scripts/create-staff.ts",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "start": "node server/dist/index.js"
