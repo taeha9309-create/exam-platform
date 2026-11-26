@@ -2,7 +2,7 @@ import express, { type ErrorRequestHandler, type Express } from 'express';
 import cookieParser from 'cookie-parser';
 import { AppError } from './errors';
 import { createExamsRouter } from './routes/exams';
-import { createStaffRouter } from './routes/staff';
+import { createStaffRouter, type StaffRouterOptions } from './routes/staff';
 import { originCheck } from './security/originCheck';
 import { registerClient } from './static';
 
@@ -38,6 +38,8 @@ export interface AppOptions {
   clientDist?: string;
   /** 앞단 프록시 수(Railway는 1). 설정하면 X-Forwarded-For에서 클라이언트 IP를 읽는다. 프록시가 없는데 켜면 IP를 위조당할 수 있다 */
   trustProxy?: number;
+  /** 교수자 라우터 설정. 생략하면 엄격한 기본 로그인 제한이 적용된다(테스트에서만 느슨하게 주입한다) */
+  staff?: StaffRouterOptions;
 }
 
 export function createApp(options: AppOptions = {}): Express {
@@ -61,7 +63,7 @@ export function createApp(options: AppOptions = {}): Express {
     res.json({ ok: true });
   });
 
-  app.use('/api/staff', createStaffRouter());
+  app.use('/api/staff', createStaffRouter(options.staff));
 
   app.use('/api/exams', createExamsRouter());
 

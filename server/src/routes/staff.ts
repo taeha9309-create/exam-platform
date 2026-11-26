@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { clearStaffCookie, getJwtSecret, hashPassword, requireStaff, setStaffCookie, verifyPassword } from '../auth/staffAuth';
 import { prisma } from '../db';
 import { AppError } from '../errors';
+import { createLoginProtection, type LoginProtectionOptions } from '../security/loginProtection';
 
 // NUL(\u0000)을 포함한 제어 문자는 PostgreSQL이 문자열로 받지 못해 500과 로그 범람을 만든다 → 입력 단계에서 400으로 거른다.
 const NO_CONTROL_CHARS = /^[^\u0000-\u001f\u007f]*$/;
@@ -30,8 +31,14 @@ function wrap(fn: (req: Request, res: Response) => Promise<void>): RequestHandle
   };
 }
 
-export function createStaffRouter(): Router {
-  getJwtSecret(); // 서버 시작(앱 생성) 때 비밀키 설정이 잘못되었으면 바로 실패시킨다.
+export interface StaffRouterOptions {
+  /** 로그인 시도 제한 설정. 생략하면 엄격한 기본값(IP 분당 20회, IP+이메일 15분 5회 실패, 동시 bcrypt 2건) */
+  loginProtection?: LoginProtectionOptions;
+}
+
+export function createStaffRouter(options: StaffRouterOptions = {}): Router {
+  getJwtSecret();
+  const protection = createLoginProtection(options.loginProtection); // 서버 시작(앱 생성) 때 비밀키 설정이 잘못되었으면 바로 실패시킨다.
   // 더미 해시를 시작 시점에 미리 계산한다. 처음 쓸 때 계산하면 서버 시작 직후 없는 이메일로 첫 로그인한 요청만
   // 해시 계산이 추가되어 느려지고, 그 시간 차이로 "계정이 없다"가 드러난다.
   void getDummyHash().catch(() => undefined);
@@ -40,16 +47,29 @@ export function createStaffRouter(): Router {
   router.post(
     '/login',
     wrap(async (req, res) => {
+      // 1) IP 한도: 입력 검증보다 먼저. 잘못된 입력도 공짜가 아니다.
+      protection.admitIp(req.ip, res);
+
       const parsed = loginSchema.safeParse(req.body);
       if (!parsed.success) throw new AppError(400, 'INVALID_INPUT', '입력값이 올바르지 않습니다.');
       const email = parsed.data.email.trim().toLowerCase();
 
-      const staff = await prisma.staff.findUnique({ where: { email } });
-      const passwordOk = await verifyPassword(parsed.data.password, staff?.passwordHash ?? (await getDummyHash()));
-      if (!staff || !passwordOk) throw INVALID_CREDENTIALS();
-
-      setStaffCookie(res, staff.id);
-      res.json({ staff: { id: staff.id, name: staff.name, email: staff.email } });
+      // 2) IP+이메일 실패 한도, 3) bcrypt 동시 상한. 둘 다 DB 조회·bcrypt보다 앞이라 거절된 요청은 비용이 거의 없다.
+      protection.admitAccount(req.ip, email, res);
+      const release = protection.acquireVerifySlot(res);
+      try {
+        const staff = await prisma.staff.findUnique({ where: { email } });
+        const passwordOk = await verifyPassword(parsed.data.password, staff?.passwordHash ?? (await getDummyHash()));
+        if (!staff || !passwordOk) {
+          protection.recordFailure(req.ip, email); // 없는 이메일도 똑같이 센다
+          throw INVALID_CREDENTIALS();
+        }
+        protection.recordSuccess(req.ip, email);
+        setStaffCookie(res, staff.id);
+        res.json({ staff: { id: staff.id, name: staff.name, email: staff.email } });
+      } finally {
+        release();
+      }
     }),
   );
 
