@@ -85,3 +85,31 @@ export const EV = {
 } as const;
 
 export type EventName = (typeof EV)[keyof typeof EV];
+
+/** API·소켓 ack가 돌려주는 오류 코드. 클라이언트 `errorText`가 모든 코드에 한국어 문구를 갖는지 테스트한다. */
+export const ERROR_CODES = [
+  'NOT_FOUND',
+  'INVALID_JSON',
+  'PAYLOAD_TOO_LARGE',
+  'BAD_REQUEST',
+  'INTERNAL',
+  'UNAUTHORIZED',
+  'INVALID_CREDENTIALS',
+  'INVALID_TRANSITION',
+  'NOT_DRAFT',
+  'ALREADY_STARTED',
+  'NOT_READY_TO_OPEN',
+  'ENTRY_FAILED',
+  'EXAM_NOT_ENTERABLE',
+  'TOO_MANY_ATTEMPTS',
+  'ENTRY_CLOSED',
+  'UNSUPPORTED_ACTION',
+  'CONSENT_REQUIRED',
+  'NOT_ACTIVE',
+  'STALE_REV',
+  'TOO_LONG',
+  'INVALID',
+  'ALREADY_SUBMITTED',
+] as const;
+
+export type ErrorCode = (typeof ERROR_CODES)[number];
