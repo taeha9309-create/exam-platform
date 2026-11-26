@@ -1,0 +1,27 @@
+{
+  "name": "exam-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "강의실 시험 무결성 플랫폼 (대학 기말 프로젝트)",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w client && npm run build -w server",
+    "test": "npm test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.4",
+    "concurrently": "^10.0.7",
+    "typescript": "^5.9.3"
+  }
+}
