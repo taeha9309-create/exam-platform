@@ -36,7 +36,6 @@ export const t = {
     EXAM_NOT_ENTERABLE: '지금은 입장할 수 없는 시험입니다.',
     TOO_MANY_ATTEMPTS: '시도 횟수가 많습니다. 잠시 후 다시 시도해 주세요.',
     ENTRY_CLOSED: '신규 입장이 닫혀 있습니다. 감독관에게 문의해 주세요.',
-    DUPLICATE_PENDING: '다른 기기에서 접속 중입니다. 감독관의 승인을 기다려 주세요.',
     UNSUPPORTED_ACTION: '지원하지 않는 조치입니다.',
     CONSENT_REQUIRED: '먼저 안내에 동의해야 다음 단계로 진행할 수 있습니다.',
     NOT_ACTIVE: '지금은 답안을 저장할 수 없는 상태입니다.',
