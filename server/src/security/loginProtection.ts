@@ -1,3 +1,4 @@
+import { isIPv6 } from 'node:net';
 import type { Response } from 'express';
 import { AppError } from '../errors';
 import { createConcurrencyLimiter, createRateLimiter, type ConcurrencyLimiter, type RateLimiter } from './rateLimit';
@@ -43,8 +44,39 @@ function tooManyAttempts(res: Response, retryAfterSec: number): AppError {
   return new AppError(429, 'TOO_MANY_ATTEMPTS', '시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.');
 }
 
-// IP가 없을 때(비정상)는 하나의 키로 묶어 한도를 더 엄격하게 적용한다.
-const ipKey = (ip: string | undefined) => ip ?? 'unknown';
+/** IPv6 문자열을 8개의 16비트 값으로 완전 전개한다(존 ID는 이미 제거된 상태, net.isIPv6 통과 가정). */
+function expandIpv6(addr: string): number[] {
+  let s = addr;
+  const lastColon = s.lastIndexOf(':');
+  const tail = s.slice(lastColon + 1);
+  if (tail.includes('.')) {
+    const o = tail.split('.').map(Number);
+    s = `${s.slice(0, lastColon + 1)}${(((o[0] ?? 0) << 8) | (o[1] ?? 0)).toString(16)}:${(((o[2] ?? 0) << 8) | (o[3] ?? 0)).toString(16)}`;
+  }
+  const [head = '', rest] = s.split('::');
+  const h = head === '' ? [] : head.split(':');
+  const r = rest === undefined || rest === '' ? [] : rest.split(':');
+  const zeros = rest === undefined ? [] : new Array<string>(8 - h.length - r.length).fill('0');
+  return [...h, ...zeros, ...r].map((x) => parseInt(x, 16));
+}
+
+/**
+ * 한도 집계용 IP 키. IPv6는 /64 단위로 묶는다(공격자는 보통 /64 전체를 가지므로 주소만 바꿔 우회할 수 없게),
+ * IPv4-mapped(::ffff:a.b.c.d)는 IPv4로 통일하고, 표기 차이(대소문자·0 생략·:: 압축)와 존 ID는 없앤다.
+ * IP가 없을 때(비정상)는 하나의 키('unknown')로 묶어 한도를 더 엄격하게 적용한다. IP 형식이 아닌 문자열은 그대로 키로 쓴다.
+ */
+export function normalizeIpKey(ip: string | undefined): string {
+  if (ip === undefined) return 'unknown';
+  const bare = ip.split('%')[0] ?? ip;
+  if (!isIPv6(bare)) return ip;
+  const g = expandIpv6(bare);
+  if (g.length !== 8 || g.some((x) => Number.isNaN(x))) return ip;
+  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) {
+    return `${(g[6]! >> 8) & 255}.${g[6]! & 255}.${(g[7]! >> 8) & 255}.${g[7]! & 255}`;
+  }
+  return g.slice(0, 4).map((x) => x.toString(16).padStart(4, '0')).join(':');
+}
+const ipKey = normalizeIpKey;
 // 이메일에는 줄바꿈 등 제어 문자가 입력 검증에서 걸러지므로 '\n' 구분자가 모호해지지 않는다.
 const accountKey = (ip: string | undefined, email: string) => `${ipKey(ip)}\n${email}`;
 

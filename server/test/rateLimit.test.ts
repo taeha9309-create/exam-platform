@@ -111,6 +111,26 @@ describe('createRateLimiter: 시간 창 카운터', () => {
     expect(rl.check('a').allowed).toBe(false);
   });
 
+  it('시계가 크게 뒤로 가도 retryAfter가 창 길이를 넘지 않는다', () => {
+    const clock = fakeClock(10_000_000);
+    const rl = createRateLimiter({ windowMs: 60_000, max: 1, maxKeys: 100, now: clock.now });
+    rl.hit('a');
+    clock.advance(-3_600_000);
+    expect(rl.check('a').retryAfterSec).toBeLessThanOrEqual(60);
+    expect(rl.hit('a')).toMatchObject({ allowed: false });
+    expect(rl.hit('a').retryAfterSec).toBeLessThanOrEqual(60);
+    clock.advance(60_000); // 줄어든 창이 끝난다
+    expect(rl.check('a').allowed).toBe(true);
+  });
+
+  it('만료 시각이 된 항목은(정리 전이라도) 없는 것으로 본다', () => {
+    const clock = fakeClock();
+    const rl = createRateLimiter({ windowMs: 1_000, max: 1, maxKeys: 100, now: clock.now });
+    rl.hit('a');
+    clock.advance(1_000);
+    expect(rl.check('a')).toMatchObject({ allowed: true, remaining: 1 });
+  });
+
   it('잘못된 설정은 거부한다', () => {
     expect(() => createRateLimiter({ windowMs: 0, max: 1, maxKeys: 1 })).toThrow();
     expect(() => createRateLimiter({ windowMs: 1, max: 0, maxKeys: 1 })).toThrow();
