@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app';
 import { parsePort } from './config';
+import { attachSocket } from './realtime/socket';
 
 let port: number;
 try {
@@ -26,8 +27,9 @@ try {
   console.error(`서버를 시작할 수 없습니다: ${(err as Error).message}`);
   process.exit(1);
 }
-// Socket.IO는 같은 http 서버에 붙이므로(Task 6) 여기서 http.Server를 직접 만든다.
+// Socket.IO는 같은 http 서버에 붙이므로 여기서 http.Server를 직접 만든다.
 const httpServer = createServer(app);
+const io = attachSocket(httpServer);
 
 httpServer.listen(port, () => {
   console.log(`서버 시작: http://localhost:${port}`);
@@ -35,6 +37,7 @@ httpServer.listen(port, () => {
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
-    httpServer.close(() => process.exit(0));
+    // io.close()는 소켓 연결을 모두 끊고 http 서버도 닫는다(소켓이 열려 있으면 httpServer.close만으로는 끝나지 않는다).
+    void io.close(() => process.exit(0));
   });
 }
