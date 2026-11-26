@@ -42,6 +42,7 @@ const readSize = () => ({ innerWidth, outerWidth, innerHeight, outerHeight });
 const state = {
   recording: false,
   startedAt: null,
+  session: null,
   entries: [],
   counts: {},
   prevSize: readSize(),
@@ -227,7 +228,9 @@ function startRecording() {
   $('rec').textContent = '기록 정지';
   $('rec').classList.add('on');
   renderCounts();
-  add('start', { browser: browserInfo().label, scenario: $('scenario').value, trial: Number($('trial').value) });
+  // 내보낼 때 선택값이 바뀌어도 파일명·내용이 어긋나지 않도록 기록 시작 시점의 값을 고정해 둔다
+  state.session = { scenario: $('scenario').value, trial: Number($('trial').value) };
+  add('start', { browser: browserInfo().label, ...state.session });
   checkScreen('start');
   setStatus('기록 중…');
 }
@@ -242,8 +245,8 @@ function stopRecording() {
 
 function exportJson() {
   const b = browserInfo();
-  const scenario = $('scenario').value;
-  const trial = Number($('trial').value);
+  // 기록한 적이 있으면 그때의 시나리오·회차, 없으면 현재 선택값
+  const { scenario, trial } = state.session ?? { scenario: $('scenario').value, trial: Number($('trial').value) };
   const entries = [...state.entries].sort((x, y) => x.wall - y.wall || x.t - y.t);
   const payload = { browser: b.label, userAgent: navigator.userAgent, startedAt: state.startedAt, scenario, trial, entries };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
