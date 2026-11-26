@@ -51,14 +51,22 @@ export function createRateLimiter(options: RateLimiterOptions): RateLimiter {
   // 상한 초과 때 맨 앞을 지우면 "가장 오래된 키"를 지우는 것이 된다.
   const entries = new Map<string, Entry>();
 
+  // 시계가 뒤로 가면(NTP 보정·VM 복원 등) 저장된 resetAt이 "지금 + 창 길이"보다 멀어져 차단이 아주 길어질 수 있다.
+  // 그래서 resetAt - now > windowMs이면 now + windowMs로 줄인다. 정리(sweep)가 앞쪽부터 같은 보정을 하므로
+  // 삽입 순서 = 만료 순서 가정이 유지된다: 시계가 뒤로 가면 범위를 벗어나는 항목은 항상 맨 앞쪽 연속 구간이고
+  // (앞쪽일수록 resetAt이 작았으므로) 그 구간이 모두 now + windowMs로 같아져 비내림차순이 보존된다.
+  // 정상일 때는 맨 앞 항목이 범위 안이라 첫 반복에서 멈춘다(O(1)).
   function sweep(t: number): void {
     for (const [key, entry] of entries) {
-      if (entry.resetAt > t) break;
-      entries.delete(key);
+      if (entry.resetAt <= t) entries.delete(key);
+      else if (entry.resetAt - t > windowMs) entry.resetAt = t + windowMs;
+      else break;
     }
   }
 
   function view(entry: Entry | undefined, t: number): RateLimitResult {
+    if (entry && entry.resetAt <= t) entry = undefined; // 만료 시각이 지난 항목은 없는 것으로 본다
+    if (entry && entry.resetAt - t > windowMs) entry.resetAt = t + windowMs;
     if (!entry) return { allowed: true, retryAfterSec: 1, remaining: max };
     const retryAfterSec = Math.max(1, Math.ceil((entry.resetAt - t) / 1000));
     return { allowed: entry.count < max, retryAfterSec, remaining: Math.max(0, max - entry.count) };
@@ -74,6 +82,11 @@ export function createRateLimiter(options: RateLimiterOptions): RateLimiter {
       const t = now();
       sweep(t);
       let entry = entries.get(key);
+      if (entry && entry.resetAt <= t) {
+        entries.delete(key); // 뒤에 다시 넣어 삽입 순서 = 만료 순서를 지킨다
+        entry = undefined;
+      }
+      if (entry && entry.resetAt - t > windowMs) entry.resetAt = t + windowMs;
       if (!entry) {
         while (entries.size >= maxKeys) {
           const oldest = entries.keys().next().value as string;
