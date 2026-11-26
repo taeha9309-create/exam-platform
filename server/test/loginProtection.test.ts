@@ -2,6 +2,7 @@ import request from 'supertest';
 import { compare } from 'bcryptjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app';
+import { normalizeIpKey } from '../src/security/loginProtection';
 import { prisma } from '../src/db';
 import { makeLoginStaff, TEST_PASSWORD } from './helpers/auth';
 import { resetDb } from './helpers/db';
@@ -249,6 +250,71 @@ describe('429로 거절된 요청은 싸다', () => {
       expect(res.text).not.toMatch(/IP|계정|동시/i);
     }
     expect(byAccount.text).toBe(byIp.text); // 어떤 제한인지 구분되지 않는다
+  });
+});
+
+describe('계정 한도 거절은 bcrypt·DB 조회 전에 일어난다', () => {
+  it('IP+이메일 실패 한도로 거절된 요청은 compare도 findUnique도 호출하지 않는다', async () => {
+    await makeLoginStaff({ email: EMAIL });
+    const app = appWith({ ip: { windowMs: 60_000, max: 1000 }, account: { windowMs: 900_000, max: 2 } });
+    await login(app, IP_A, EMAIL, 'wrong-password');
+    await login(app, IP_A, EMAIL, 'wrong-password');
+    vi.mocked(compare).mockClear();
+    const spy = vi.spyOn(prisma.staff, 'findUnique');
+    expectRejected429(await login(app, IP_A, EMAIL, TEST_PASSWORD));
+    expect(vi.mocked(compare)).not.toHaveBeenCalled();
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('IPv6 /64 집계', () => {
+  const cfg = { ip: { windowMs: 60_000, max: 20 }, account: { windowMs: 900_000, max: 1000 } };
+  const bad = (app: ReturnType<typeof createApp>, ip: string) => request(app).post('/api/staff/login').set('X-Forwarded-For', ip).send({});
+
+  it('같은 /64 안의 주소를 바꿔 가며 시도해도 20회 이후 429, 다른 /64는 영향 없다', async () => {
+    const app = appWith(cfg);
+    for (let i = 0; i < 20; i++) expect((await bad(app, `2001:db8:1:2::${i + 1}`)).status).toBe(400);
+    for (let i = 20; i < 40; i++) expectRejected429(await bad(app, `2001:db8:1:2:${i}::${i}`));
+    expect((await bad(app, '2001:db8:1:3::1')).status).toBe(400);
+  });
+
+  it('::ffff:1.2.3.4 와 1.2.3.4 는 같은 IP로 센다', async () => {
+    const app = appWith({ ...cfg, ip: { windowMs: 60_000, max: 2 } });
+    expect((await bad(app, '1.2.3.4')).status).toBe(400);
+    expect((await bad(app, '::ffff:1.2.3.4')).status).toBe(400);
+    expectRejected429(await bad(app, '::FFFF:0102:0304'));
+    expectRejected429(await bad(app, '1.2.3.4'));
+  });
+
+  it('대문자·0 생략·:: 압축 표기가 달라도 같은 키다', async () => {
+    const app = appWith({ ...cfg, ip: { windowMs: 60_000, max: 3 } });
+    expect((await bad(app, '2001:db8::1')).status).toBe(400);
+    expect((await bad(app, '2001:0DB8:0000:0000:0000:0000:0000:0001')).status).toBe(400);
+    expect((await bad(app, '2001:DB8:0:0::1')).status).toBe(400);
+    expectRejected429(await bad(app, '2001:db8:0:0:0:0:0:2'));
+  });
+
+  it('존 ID는 제거하고 같은 키로 만든다(키 함수 단위 검사)', () => {
+    expect(normalizeIpKey('fe80::1%eth0')).toBe(normalizeIpKey('fe80::2'));
+    expect(normalizeIpKey('::ffff:1.2.3.4')).toBe('1.2.3.4');
+    expect(normalizeIpKey('2001:DB8::1')).toBe(normalizeIpKey('2001:db8:0:0:ffff::9'));
+    expect(normalizeIpKey('2001:db8:0:1::1')).not.toBe(normalizeIpKey('2001:db8::1'));
+    expect(normalizeIpKey('garbage')).toBe('garbage');
+    expect(normalizeIpKey(undefined)).toBe('unknown');
+  });
+
+  it('IPv4는 주소별로 따로 센다(기존 동작)', async () => {
+    const app = appWith({ ...cfg, ip: { windowMs: 60_000, max: 1 } });
+    expect((await bad(app, '10.0.0.1')).status).toBe(400);
+    expect((await bad(app, '10.0.0.2')).status).toBe(400);
+    expectRejected429(await bad(app, '10.0.0.1'));
+  });
+
+  it('IP가 문자열이 아닌 쓰레기 값이어도 그대로 한 키로 센다(기존 동작)', async () => {
+    const app = appWith({ ...cfg, ip: { windowMs: 60_000, max: 1 } });
+    expect((await bad(app, 'garbage')).status).toBe(400);
+    expectRejected429(await bad(app, 'garbage'));
+    expect((await bad(app, 'garbage2')).status).toBe(400);
   });
 });
 

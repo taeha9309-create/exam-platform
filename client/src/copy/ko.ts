@@ -32,6 +32,7 @@ export const t = {
     FORBIDDEN_ORIGIN: '허용되지 않은 주소에서 보낸 요청입니다. 시험 사이트 주소에서 다시 시도해 주세요.',
     INVALID_TRANSITION: '현재 상태에서는 할 수 없는 동작입니다.',
     NOT_DRAFT: '준비 중인 시험에서만 문항과 명단을 수정할 수 있습니다.',
+    BUSY: '다른 요청을 처리 중입니다. 잠시 후 다시 시도해 주세요.',
     ALREADY_STARTED: '이미 시작된 시험입니다.',
     NOT_READY_TO_OPEN: '문항과 명단이 각각 1개 이상 있어야 입장을 열 수 있습니다.',
     ENTRY_FAILED: '학번 또는 시험 비밀번호가 맞지 않습니다.',

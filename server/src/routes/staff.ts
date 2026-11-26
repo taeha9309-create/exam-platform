@@ -37,8 +37,9 @@ export interface StaffRouterOptions {
 }
 
 export function createStaffRouter(options: StaffRouterOptions = {}): Router {
+  // 서버 시작(앱 생성) 때 비밀키 설정이 잘못되었으면 바로 실패시킨다.
   getJwtSecret();
-  const protection = createLoginProtection(options.loginProtection); // 서버 시작(앱 생성) 때 비밀키 설정이 잘못되었으면 바로 실패시킨다.
+  const protection = createLoginProtection(options.loginProtection);
   // 더미 해시를 시작 시점에 미리 계산한다. 처음 쓸 때 계산하면 서버 시작 직후 없는 이메일로 첫 로그인한 요청만
   // 해시 계산이 추가되어 느려지고, 그 시간 차이로 "계정이 없다"가 드러난다.
   void getDummyHash().catch(() => undefined);
