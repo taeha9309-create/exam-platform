@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>감지 실험 페이지</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: system-ui, "Malgun Gothic", sans-serif; background: #f4f5f7; color: #1b1f24; }
+      header { padding: 10px 14px; background: #1b1f24; color: #fff; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+      header label { font-size: 13px; display: flex; align-items: center; gap: 6px; }
+      header select, header input[type="number"] { padding: 3px 6px; }
+      button { padding: 5px 11px; cursor: pointer; }
+      #rec { font-weight: 700; }
+      #rec.on { background: #c62828; color: #fff; }
+      .layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; padding: 14px; }
+      .card { background: #fff; border: 1px solid #d5d9de; border-radius: 6px; padding: 14px; }
+      h1, h2 { margin: 0 0 8px; font-size: 16px; }
+      textarea { width: 100%; height: 200px; font: inherit; }
+      #status { font-size: 12px; color: #9fd8a6; }
+      #counts { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 13px; margin: 0 0 10px; }
+      #counts .hit { font-weight: 700; color: #c62828; }
+      #log { font: 11px/1.5 ui-monospace, Consolas, monospace; max-height: 56vh; overflow: auto; background: #101418; color: #d6dde5; padding: 8px; border-radius: 4px; }
+      #log div { white-space: pre-wrap; word-break: break-all; }
+      #cover { position: fixed; inset: 0; background: #fff; z-index: 1000; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; text-align: center; padding: 24px; }
+      #cover[hidden] { display: none; }
+      .hint { font-size: 12px; color: #5b6570; margin: 6px 0 0; }
+    </style>
+  </head>
+  <body>
+    <header data-lab>
+      <strong>감지 실험 페이지</strong>
+      <label>시나리오
+        <select id="scenario"></select>
+      </label>
+      <label>회차 <input id="trial" type="number" min="1" value="1" style="width: 60px" /></label>
+      <button id="fs" type="button">전체화면 진입</button>
+      <button id="rec" type="button">기록 시작</button>
+      <button id="export" type="button">JSON 내보내기</button>
+      <button id="clear" type="button">로그 지우기</button>
+      <label><input id="cover-on" type="checkbox" checked /> 커서가 나가면 화면 가림</label>
+      <span id="status"></span>
+    </header>
+
+    <div class="layout">
+      <main class="card" id="exam">
+        <h1>가짜 시험지 (실험용)</h1>
+        <p><strong>문항 1.</strong> 다음 중 HTTP 상태 코드 404의 의미는?</p>
+        <p>
+          <label><input type="radio" name="q1" /> 요청한 자원을 찾을 수 없음</label><br />
+          <label><input type="radio" name="q1" /> 서버 내부 오류</label><br />
+          <label><input type="radio" name="q1" /> 인증 필요</label>
+        </p>
+        <p>
+          <label>보기 목록(오탐 측정용 기본 팝업):
+            <select id="native-select"><option>선택하세요</option><option>가</option><option>나</option><option>다</option></select>
+          </label>
+        </p>
+        <p><strong>문항 2.</strong> 서술형: 세션 토큰을 해시로 저장하는 이유를 설명하세요.</p>
+        <textarea id="essay" placeholder="여기에 입력하세요. 한글 입력과 붙여넣기를 시험합니다."></textarea>
+        <p class="hint">기록 시작 후 시나리오 행동을 수행하고, 기록 정지 → JSON 내보내기. 파일명 규칙은 README 참고.</p>
+      </main>
+
+      <aside class="card" id="panel" data-lab>
+        <h2>후보 신호 카운터 (이번 기록)</h2>
+        <div id="counts"></div>
+        <h2>이벤트 로그 (최근 200건)</h2>
+        <div id="log"></div>
+      </aside>
+    </div>
+
+    <div id="cover" data-lab hidden>커서를 시험 화면 안으로 다시 가져와 주세요</div>
+    <script type="module" src="./lab.js"></script>
+  </body>
+</html>
