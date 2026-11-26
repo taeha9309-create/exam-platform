@@ -28,7 +28,14 @@ export function registerClient(app: Express, clientDist: string): void {
   );
 
   app.get('*', (req, res, next) => {
-    const segments = req.path.split('/');
+    // 점을 %2e로 인코딩해 숨김 검사를 피하는 경로(/%2egit/config)도 같게 다루도록 디코딩한 경로로 검사한다
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(req.path);
+    } catch {
+      return next(); // 깨진 인코딩은 화면으로 돌려주지 않는다
+    }
+    const segments = decoded.split('/');
     const lastSegment = segments[segments.length - 1] ?? '';
     // 확장자가 있는 경로(없는 .js 등)나 숨김 세그먼트(/.git/…, /.well-known/…)는 화면이 아니라 404로 둔다
     if (lastSegment.includes('.') || segments.some((s) => s.startsWith('.'))) return next();

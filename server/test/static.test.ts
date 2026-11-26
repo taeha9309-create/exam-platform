@@ -66,7 +66,8 @@ describe('빌드된 화면 제공(운영: 화면과 API를 같은 주소로)', (
   });
 
   it('숨김 폴더·파일이 들어간 경로(/.git/config 등)는 화면이 아니라 404(스캐너가 "있는 파일"로 오인하지 않게)', async () => {
-    for (const path of ['/.git/config', '/.well-known/x', '/a/.b/c', '/.hidden/']) {
+    // 점을 %2e로 인코딩해도 같은 취급(디코딩한 경로로 검사)
+    for (const path of ['/.git/config', '/.well-known/x', '/a/.b/c', '/.hidden/', '/%2ehid', '/%2egit/config', '/a/%2E%2e/x', '/%2Ehidden/']) {
       const res = await request(app).get(path);
       expect(res.status, path).toBe(404);
       expect(res.text, path).not.toContain('id="root"');
@@ -109,9 +110,8 @@ describe('화면 폴더가 없으면(개발·테스트) API만 제공한다', ()
 });
 
 describe('프록시 뒤에서 동작(Railway)', () => {
-  it('trustProxy 옵션이 있으면 X-Forwarded-For의 클라이언트 IP를 req.ip로 쓴다', async () => {
-    const a = createApp({ trustProxy: 1 });
-    expect(a.get('trust proxy')).toBe(1);
+  it('trustProxy 옵션은 Express의 trust proxy 설정으로 반영된다(실제 req.ip 동작은 Express 몫 — 가장 오른쪽 XFF 값을 쓰는 것을 Reviewer가 직접 확인)', () => {
+    expect(createApp({ trustProxy: 1 }).get('trust proxy')).toBe(1);
   });
 
   it('기본값은 프록시를 신뢰하지 않는다(헤더로 IP를 위조할 수 없음)', () => {
