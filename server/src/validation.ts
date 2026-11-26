@@ -26,7 +26,7 @@ export interface SafeStringOptions {
   allowNewlines?: boolean;
 }
 
-/** 길이(UTF-16 코드 유닛 기준)·제어 문자·짝 없는 서로게이트를 한 번에 검사하는 zod 문자열. */
+/** 길이(code point, 즉 글자 기준 — zod 4가 code point로 세며 PostgreSQL VarChar와 같다)·제어 문자·짝 없는 서로게이트를 한 번에 검사하는 zod 문자열. */
 export function safeString({ min, max, allowNewlines = false }: SafeStringOptions) {
   return z
     .string()

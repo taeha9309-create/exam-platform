@@ -13,6 +13,32 @@ const mcq = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+describe('보기 배열 상한·예약어 id·오류 절단 (#42)', () => {
+  it('보기 100,000개는 거부된다', () => {
+    const choices = Array.from({ length: 100000 }, (_, i) => ({ id: `c${i}`, text: 'x' }));
+    const r = parseQuestionsInput([mcq({ choices })]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.errors.length).toBeLessThanOrEqual(50);
+      expect(r.errors).toContainEqual(expect.objectContaining({ index: 0, field: 'choices' }));
+    }
+  });
+
+  it('오류 목록은 최대 50건으로 잘린다', () => {
+    const r = parseQuestionsInput(Array.from({ length: 100 }, () => mcq({ points: 0 })));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors).toHaveLength(50);
+  });
+
+  it('보기 id가 __proto__·constructor·prototype이면 choices 오류', () => {
+    for (const bad of ['__proto__', 'constructor', 'prototype']) {
+      const r = parseQuestionsInput([mcq({ choices: [{ id: bad, text: '가' }, { id: 'b', text: '나' }], correctChoiceId: 'b' })]);
+      expect(r.ok, bad).toBe(false);
+      if (!r.ok) expect(r.errors, bad).toContainEqual(expect.objectContaining({ index: 0, field: 'choices' }));
+    }
+  });
+});
+
 describe('parseQuestionsInput', () => {
   it('올바른 객관식·서술형을 통과시킨다', () => {
     const r = parseQuestionsInput([mcq(), { type: 'ESSAY', prompt: '서술', points: 5 }]);

@@ -8,7 +8,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:3000',
+      // changeOrigin을 끄면 Host가 5173으로 유지되어 브라우저의 Origin(http://localhost:5173)과 같은 출처로 판정된다.
+      // 축약형('/api': url)은 changeOrigin: true라 Host가 3000으로 바뀌어 서버의 Origin 검사가 모든 POST를 403으로 거부한다.
+      '/api': { target: 'http://localhost:3000', changeOrigin: false },
       '/socket.io': { target: 'http://localhost:3000', ws: true },
     },
   },
