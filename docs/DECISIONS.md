@@ -28,6 +28,10 @@
 | D-021 | 2026-11-25 | **좌석 배치 제거**, 대시보드는 학번·이름 학생 카드 목록(학번순 / 확인 필요순 정렬, 검색) | 강의실 배치 격자 + 학생 좌석 번호 입력 | 사용자 지적: 학교 강의실마다 배치가 다양해 좌석 입력이 현실적이지 않음. 감독관은 이름으로 학생을 찾음 | PRD v1.3, SPEC v1.3 F-13 |
 | D-022 | 2026-11-25 | GitHub **라벨 이름을 한국어로** 통일(`상태:준비/진행중/리뷰/보류/완료`, `계획-0/1`, `영역:서버/클라이언트/인프라`, `중요-리뷰`, `모델:haiku/sonnet`, `문서변경-승인`), 기본 영어 라벨 삭제 | 영어 라벨 이름 + 한국어 설명 | 사용자 요청: 라벨·이슈·마일스톤을 한국어 체계로. 참조하는 CLAUDE.md·훅·CI·템플릿·스크립트·ADR-011을 함께 변경 | ADR-011, CLAUDE.md, ci.yml |
 | D-023 | 2026-11-25 | **PR 병합은 사용자만 한다.** 에이전트의 병합(`gh pr merge`·자동 병합·REST/GraphQL)과 승인 라벨 부착은 `deny`, Coordinator는 병합 준비 완료를 보고하고 대기 | 에이전트가 병합 요청 → 사용자 승인 창(`ask`) | 수동 검증에서 **auto 권한 모드는 `ask`를 사람에게 묻지 않음**을 발견(PR #1 병합 시 승인 창 없음). 권한 모드에 의존하는 안전장치는 안전장치가 아니므로 `deny` + 사람의 직접 행동으로 변경 | CLAUDE.md §4·§7, VERIFICATION §6 |
+| D-024 | 2026-11-26 | **로그아웃도 교수자 인증을 요구**(SPEC 7.1 그대로) | 인증 없이 쿠키를 지우는 멱등 로그아웃(Operator 구현) | Opus 보안 리뷰: 인증 없이 쿠키를 지우면 다른 사이트의 폼 POST만으로 시험 중인 감독관을 강제 로그아웃시킬 수 있음. SPEC을 따르는 것이므로 SPEC 변경 없음 | SPEC 7.1, PR #34 |
+| D-025 | 2026-11-26 | **배포에 Railway 설정 파일(`railway.json`)을 쓰지 않고** 서비스 설정(Build·Start·Pre-deploy 명령) + 루트 `package.json` 표준 스크립트로 구성 → ADR-012 | 계획서: `railway.json` 생성 | 공식 문서 원문 확인: Config as Code는 폐지되어 2026-12-01에 읽기가 중단되고 새 서비스는 쓸 수 없음(마감은 그 이후) | ADR-012, 계획 1 Task 17a, PR #35 |
+| D-026 | 2026-11-26 | **병렬 Operator는 각자 전용 테스트 DB**(`exam_<작업>_test`)를 쓴다 | 모든 작업이 `exam_test` 공유 | 같은 DB를 동시에 쓰면 서로의 테이블을 비워 테스트가 무작위로 실패. `TEST_DATABASE_URL` 환경변수로 지정(이름은 `_test`로 끝나야 함, 개발 DB 보호 장치 유지) | ADR-003, README |
+| D-027 | 2026-11-26 | **로그인 시도 제한은 IP·IP+이메일 조합 기준**이고 계정 자체를 잠그지 않는다 + 동시 bcrypt 상한 | (미정) / 계정 N회 실패 시 잠금 | Opus 보안 리뷰(M-1): 동시 20건 로그인으로 이벤트 루프 최대 758ms 지연(인증 없이 가능한 DoS). 계정 잠금은 공격자가 시험 당일 교수자를 잠가 버리는 DoS가 되므로 피함 | 이슈 #36 |
 
 ---
 
@@ -116,3 +120,10 @@
 - 대안: 별도 상태 파일·DB(중복), 외부 관측 도구(과함).
 - 결과: 기록이 GitHub에 남아 발표·회고 자료가 됨. 메인 세션(Coordinator)의 토큰은 작업별로 나눌 수 없어 사이클 단위로 `/usage` 값을 적는다.
 - 승인: 사용자(2026-11-25, 하네스 추가 요구사항)
+
+## ADR-012 배포: Railway 설정 파일 없이 서비스 설정 + 표준 스크립트
+- 배경: 계획서는 `railway.json`으로 빌드·시작 명령을 정하기로 했다. 조사 중 Railway의 Config as Code(`railway.json`/`railway.toml`)가 폐지됨을 발견했다. 공식 문서 원문: "Existing Config as Code files stop being read on 2026-12-01 (hard cutoff)", "New services cannot opt into Config as Code". 이 프로젝트의 마감(12/07~12/14)은 그 이후다.
+- 결정: 설정 파일을 만들지 않는다. Railway 서비스 설정(대시보드)에서 Build `npm run build`, Start `npm start`, **Pre-deploy Command `npm run db:deploy -w @exam/server`**를 지정하고, 루트 `package.json`의 표준 스크립트(`build`, `start`)와 `.node-version`을 쓴다. 변수는 `DATABASE_URL`(`${{Postgres.DATABASE_URL}}` 참조), `JWT_SECRET`, `NODE_ENV=production`. 절차는 README "배포 (Railway)".
+- 대안: `railway.json`(2026-12-01 이후 무효, 새 서비스는 불가), Infrastructure as Code(`.railway/railway.ts`, 이 규모에는 과함), 시작 명령에 마이그레이션 포함(실패 시 배포가 멈추지 않고 앱이 죽은 채 재시작 반복).
+- 결과: 설정이 코드로 버전 관리되지 않아(대시보드에만 존재) README 절차에 의존한다. 대신 마이그레이션이 **새 버전이 뜨기 전에 실행되고 실패하면 배포가 중단**된다(Pre-deploy). 폐지 일정과 무관하게 동작한다.
+- 승인: 사용자(2026-11-26, PR #35 병합). 이 기록은 PR #35에서 보호 파일 변경을 피하려고 후속 문서 PR로 미뤘다.
