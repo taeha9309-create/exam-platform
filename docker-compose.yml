@@ -8,7 +8,8 @@ services:
       POSTGRES_PASSWORD: exam
       POSTGRES_DB: exam
     ports:
-      - "5432:5432"
+      # 내 컴퓨터에서만 접속(공용 와이파이에 DB를 노출하지 않는다). 개발용 비밀번호라 외부 노출 금지
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/db-init.sql:/docker-entrypoint-initdb.d/init.sql:ro

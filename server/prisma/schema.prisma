@@ -1,0 +1,250 @@
+// 데이터 모델 (docs/SPEC.md 4장이 기준). 열거형 값은 shared/src/index.ts의 타입과 같다.
+// 값 제약(배점 ≥ 1, 제한 시간 1~300분, 난이도 1~5)은 Prisma가 표현하지 못해 마이그레이션 SQL의 CHECK로 건다.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ExamStatus {
+  DRAFT
+  OPEN
+  RUNNING
+  ENDED
+}
+
+enum PasteMode {
+  RECORD
+  BLOCK
+}
+
+enum QuestionType {
+  MCQ
+  ESSAY
+}
+
+enum AttemptState {
+  WAITING
+  PENDING_APPROVAL
+  ACTIVE
+  PAUSED
+  SUBMITTED
+  TERMINATED
+  REJECTED
+}
+
+enum SubmitReason {
+  STUDENT
+  TIMEOUT
+  EXAM_ENDED
+}
+
+/// 카드 색·확인 처리용. NONE은 확인 처리된 상태
+enum Severity {
+  NONE
+  INFO
+  WARN
+  ALERT
+}
+
+/// 신호 자체의 위험도(NONE 없음)
+enum SignalSeverity {
+  INFO
+  WARN
+  ALERT
+}
+
+enum SignalType {
+  LEAVE
+  LEAVE_START
+  FULLSCREEN_EXIT
+  PASTE
+  DROP
+  MULTI_MONITOR
+  DISCONNECT
+  RECONNECT
+  HEARTBEAT_GAP
+  SEQ_GAP
+}
+
+enum ProctorActionType {
+  APPROVE_ENTRY
+  REJECT_ENTRY
+  APPROVE_SESSION
+  REJECT_SESSION
+  WARN
+  PAUSE
+  RESUME
+  TERMINATE
+  ADD_TIME
+  ACK
+  AUTO_PAUSE
+}
+
+/// 교수자 계정(조교도 별도 교수자 계정). 스크립트로 생성한다
+model Staff {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+
+  exams   Exam[]
+  actions ProctorAction[]
+}
+
+model Exam {
+  id            String     @id @default(uuid())
+  ownerId       String
+  owner         Staff      @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  examCode      String     @unique @db.VarChar(8)
+  title         String
+  instructions  String     @default("")
+  durationMin   Int
+  status        ExamStatus @default(DRAFT)
+  /// 시험 비밀번호(6자리 숫자). 입장 열기 전에는 없다
+  passcode      String?    @db.VarChar(6)
+  lockNewEntry  Boolean    @default(false)
+  pasteMode     PasteMode  @default(RECORD)
+  shuffle       Boolean    @default(true)
+  startedAt     DateTime?
+  endsAt        DateTime?
+  endedAt       DateTime?
+  createdAt     DateTime   @default(now())
+
+  questions Question[]
+  roster    RosterEntry[]
+  attempts  Attempt[]
+  surveys   SurveyResponse[]
+}
+
+model Question {
+  id              String       @id @default(uuid())
+  examId          String
+  exam            Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  position        Int
+  type            QuestionType
+  prompt          String
+  points          Int
+  /// MCQ만: [{ id, text }] 2~6개
+  choices         Json?
+  /// MCQ만. 학생에게는 절대 내려주지 않는다
+  correctChoiceId String?
+
+  answers Answer[]
+
+  @@unique([examId, position])
+}
+
+model RosterEntry {
+  id        String @id @default(uuid())
+  examId    String
+  exam      Exam   @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentNo String
+  name      String
+
+  attempt Attempt?
+
+  @@unique([examId, studentNo])
+}
+
+model Attempt {
+  id               String        @id @default(uuid())
+  examId           String
+  exam             Exam          @relation(fields: [examId], references: [id], onDelete: Cascade)
+  rosterEntryId    String        @unique
+  rosterEntry      RosterEntry   @relation(fields: [rosterEntryId], references: [id], onDelete: Cascade)
+  state            AttemptState  @default(WAITING)
+  /// 세션 토큰의 SHA-256 해시(원문은 저장하지 않는다, ADR-005)
+  sessionTokenHash String        @unique
+  /// 다른 기기 접속이 감독관 승인을 기다리는 동안의 토큰 해시
+  pendingTokenHash String?       @unique
+  isLate           Boolean       @default(false)
+  consentAt        DateTime?
+  consentDeclined  Boolean       @default(false)
+  envBrowser       String?
+  envIsExtended    Boolean?
+  envCheckedAt     DateTime?
+  /// questionId[] — 응시 생성 시 계산한 문항 순서
+  questionOrder    Json
+  /// { questionId: choiceId[] } — 보기 순서
+  choiceOrders     Json
+  extraSeconds     Int           @default(0)
+  lastSeq          Int           @default(0)
+  lastHeartbeatAt  DateTime?
+  violationCount   Int           @default(0)
+  pausedAt         DateTime?
+  connected        Boolean       @default(false)
+  submittedAt      DateTime?
+  submitReason     SubmitReason?
+  surveyDone       Boolean       @default(false)
+  unackedSeverity  Severity      @default(NONE)
+  createdAt        DateTime      @default(now())
+
+  answers Answer[]
+  signals Signal[]
+  actions ProctorAction[]
+
+  @@index([examId, state])
+}
+
+model Answer {
+  id            String   @id @default(uuid())
+  attemptId     String
+  attempt       Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId    String
+  question      Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  choiceId      String?
+  text          String?  @db.VarChar(5000)
+  /// 저장 순번. 저장된 값보다 작은 rev의 저장은 무시한다(오래된 저장 덮어쓰기 방지)
+  rev           Int      @default(0)
+  savedAt       DateTime @default(now())
+  awardedPoints Int?
+
+  @@unique([attemptId, questionId])
+}
+
+model Signal {
+  id         String         @id @default(uuid())
+  attemptId  String
+  attempt    Attempt        @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  type       SignalType
+  severity   SignalSeverity
+  seq        Int?
+  clientAt   DateTime?
+  receivedAt DateTime       @default(now())
+  durationMs Int?
+  questionId String?
+  meta       Json           @default("{}")
+
+  @@index([attemptId, receivedAt])
+}
+
+model ProctorAction {
+  id        String            @id @default(uuid())
+  attemptId String
+  attempt   Attempt           @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  /// null이면 시스템이 기록한 조치(예: AUTO_PAUSE). 교수자 계정을 지워도 기록은 남는다
+  staffId   String?
+  staff     Staff?            @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  type      ProctorActionType
+  reason    String
+  payload   Json              @default("{}")
+  createdAt DateTime          @default(now())
+
+  @@index([attemptId, createdAt])
+}
+
+/// 익명 설문(D-015): 응시·학번·시각과 연결하지 않는다.
+/// id는 생성 시각이 들어 있지 않은 UUID v4여야 한다(cuid·UUID v7은 ID로 제출 시각이 새어 나간다).
+model SurveyResponse {
+  id         String  @id @default(uuid())
+  examId     String
+  exam       Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+  difficulty Int?
+  comment    String? @db.VarChar(1000)
+}
