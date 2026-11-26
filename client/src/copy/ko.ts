@@ -29,6 +29,7 @@ export const t = {
     INTERNAL: '서버에 문제가 생겼습니다. 잠시 후 다시 시도해 주세요.',
     UNAUTHORIZED: '로그인이 필요합니다.',
     INVALID_CREDENTIALS: '이메일 또는 비밀번호가 맞지 않습니다.',
+    FORBIDDEN_ORIGIN: '허용되지 않은 주소에서 보낸 요청입니다. 시험 사이트 주소에서 다시 시도해 주세요.',
     INVALID_TRANSITION: '현재 상태에서는 할 수 없는 동작입니다.',
     NOT_DRAFT: '준비 중인 시험에서만 문항과 명단을 수정할 수 있습니다.',
     ALREADY_STARTED: '이미 시작된 시험입니다.',

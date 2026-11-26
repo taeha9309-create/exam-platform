@@ -2,6 +2,7 @@ import express, { type ErrorRequestHandler, type Express } from 'express';
 import cookieParser from 'cookie-parser';
 import { AppError } from './errors';
 import { createStaffRouter } from './routes/staff';
+import { originCheck } from './security/originCheck';
 import { registerClient } from './static';
 
 /** 오류 응답 형식은 항상 { error: { code, message } } (계획 1 공통 제약). 화면 문구는 클라이언트가 code로 매핑한다. */
@@ -50,6 +51,8 @@ export function createApp(options: AppOptions = {}): Express {
     res.setHeader('Referrer-Policy', 'no-referrer');
     next();
   });
+  // CSRF 방어: /api 전체의 상태 변경 요청에 Origin 검사(본문 해석보다 먼저)
+  app.use('/api', originCheck);
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 
