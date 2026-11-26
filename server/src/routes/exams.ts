@@ -1,4 +1,4 @@
-import { Prisma, type ExamStatus } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
 import { requireStaff } from '../auth/staffAuth';
@@ -7,6 +7,7 @@ import { generateExamCode } from '../domain/codes';
 import { parseQuestionsInput } from '../domain/questions';
 import { MAX_ROSTER_CSV_LENGTH, parseRosterCsv } from '../domain/roster';
 import { AppError } from '../errors';
+import { endExam, lockExam, NOT_FOUND, openExam, regeneratePasscode, runExamTx, startExam } from '../services/examLifecycle';
 import { safeString } from '../validation';
 
 const MAX_TITLE_LENGTH = 100;
@@ -16,7 +17,6 @@ const MAX_DURATION_MIN = 300;
 const EXAM_CODE_RETRIES = 5;
 
 const INVALID_INPUT = () => new AppError(400, 'INVALID_INPUT', '입력값이 올바르지 않습니다.');
-const NOT_FOUND = () => new AppError(404, 'NOT_FOUND', '시험을 찾을 수 없습니다.');
 
 /** 세부 오류(어느 문항·몇 번째 줄인지)를 함께 돌려주는 400. 형식은 { error: { code, message, details } } (공통 오류 형식의 확장) */
 function sendInvalidWithDetails(res: Response, details: unknown): void {
@@ -59,44 +59,6 @@ function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw INVALID_INPUT();
   return parsed.data;
-}
-
-type Tx = Prisma.TransactionClient;
-
-/**
- * 시험 행 잠금(FOR UPDATE) 트랜잭션의 대기·실행 한도. Prisma 기본값(maxWait 2초, timeout 5초)은
- * 같은 시험에 큰 쓰기(문항 100개 × 4000자)가 몰려 순서를 기다릴 때 부족해 P2028 → 500이 났다.
- * 대기 4건이 차례로 끝나는 시간(요청당 ~1~2초)을 넉넉히 덮도록 maxWait 10초, 실행 timeout 20초로 둔다.
- * Task 7·감독 조치 등 같은 패턴의 트랜잭션도 이 상수와 runExamTx를 쓴다.
- */
-export const EXAM_TX_OPTIONS = { maxWait: 10_000, timeout: 20_000 } as const;
-
-const BUSY = () => new AppError(409, 'BUSY', '다른 요청을 처리 중입니다. 잠시 후 다시 시도해 주세요.');
-
-/** P2028(트랜잭션 시작·실행 시간 초과), P2034(직렬화 실패·교착)는 재시도하면 되는 일시적 충돌이다. */
-function isTransientTxError(err: unknown): boolean {
-  return err instanceof Prisma.PrismaClientKnownRequestError && (err.code === 'P2028' || err.code === 'P2034');
-}
-
-/** 한도가 명시된 트랜잭션. 그래도 일시적 충돌이면 500 대신 409 BUSY(다시 시도 가능)로 바꾼다. */
-async function runExamTx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
-  try {
-    return await prisma.$transaction(fn, EXAM_TX_OPTIONS);
-  } catch (err) {
-    if (isTransientTxError(err)) throw BUSY();
-    throw err;
-  }
-}
-
-/**
- * 시험 행을 잠그고(SELECT ... FOR UPDATE) 상태를 읽는다. 상태 확인과 변경 사이에 다른 요청(예: 입장 열기)이
- * 끼어들어 "DRAFT였는데 저장 직전에 OPEN이 된" 경쟁 상태를 막는다. 반드시 트랜잭션 안에서 호출한다.
- */
-async function lockExam(tx: Tx, id: string): Promise<{ status: ExamStatus }> {
-  const rows = await tx.$queryRaw<{ status: ExamStatus }[]>`SELECT "status" FROM "Exam" WHERE "id" = ${id} FOR UPDATE`;
-  const row = rows[0];
-  if (!row) throw NOT_FOUND();
-  return row;
 }
 
 const NOT_DRAFT = () => new AppError(409, 'NOT_DRAFT', '준비 중인 시험에서만 문항과 명단을 수정할 수 있습니다.');
@@ -282,6 +244,40 @@ export function createExamsRouter(): Router {
         await tx.rosterEntry.createMany({ data: parsed.entries.map((e) => ({ examId: id, studentNo: e.studentNo, name: e.name })) });
       });
       res.json({ rosterCount: parsed.entries.length });
+    }),
+  );
+
+  router.post(
+    '/:id/open',
+    wrap(async (req, res) => {
+      const id = parseId(req);
+      await openExam(id);
+      res.json({ exam: await loadDetail(id) });
+    }),
+  );
+
+  router.post(
+    '/:id/passcode',
+    wrap(async (req, res) => {
+      res.json({ passcode: await regeneratePasscode(parseId(req)) });
+    }),
+  );
+
+  router.post(
+    '/:id/start',
+    wrap(async (req, res) => {
+      const id = parseId(req);
+      await startExam(id);
+      res.json({ exam: await loadDetail(id) });
+    }),
+  );
+
+  router.post(
+    '/:id/end',
+    wrap(async (req, res) => {
+      const id = parseId(req);
+      await endExam(id);
+      res.json({ exam: await loadDetail(id) });
     }),
   );
 
