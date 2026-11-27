@@ -5,7 +5,7 @@ import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { generateToken, hashToken } from '../src/auth/studentSession';
 import { prisma } from '../src/db';
-import { startDeadlineTicker, tickDeadlines } from '../src/jobs/deadlineTicker';
+import { startDeadlineTicker, TICK_INTERVAL_MS, tickDeadlines } from '../src/jobs/deadlineTicker';
 import { ANSWER_SAVE_BURST } from '../src/realtime/socket';
 import { endExam } from '../src/services/examLifecycle';
 import { saveAnswer, submitAttempt } from '../src/services/submission';
@@ -510,6 +510,23 @@ describe('tickDeadlines', () => {
     expect((await prisma.exam.findUniqueOrThrow({ where: { id: g.exam.id } })).status).toBe('RUNNING');
   });
 
+  it('잠금 없는 사전 걸러내기가 있어도 없어도 결과가 같다(종료 가능한 시험만 ENDED)', async () => {
+    for (const prefilter of [true, false]) {
+      const endsAt = new Date(Date.now() + 600_000);
+      const waiting = await fixture({ endsAt });
+      await attemptFor(waiting, { state: 'WAITING' });
+      const pending = await fixture({ endsAt });
+      await attemptFor(pending, { state: 'PENDING_APPROVAL' });
+      const finished = await fixture({ endsAt });
+      await attemptFor(finished, { state: 'SUBMITTED' });
+      await tickDeadlines(new Date(endsAt.getTime() + 1000), { prefilter });
+      const status = async (id: string) => (await prisma.exam.findUniqueOrThrow({ where: { id } })).status;
+      expect(await status(waiting.exam.id), `prefilter=${prefilter}`).toBe('RUNNING');
+      expect(await status(pending.exam.id), `prefilter=${prefilter}`).toBe('RUNNING');
+      expect(await status(finished.exam.id), `prefilter=${prefilter}`).toBe('ENDED');
+    }
+  });
+
   it('한 응시의 실패가 다른 응시 처리를 막지 않는다', async () => {
     const endsAt = new Date(Date.now() + 600_000);
     const f = await fixture({ endsAt });
@@ -525,6 +542,10 @@ describe('tickDeadlines', () => {
 });
 
 describe('startDeadlineTicker', () => {
+  it('기본 점검 주기는 250ms 이하다(F-11: 마감 후 1초 안)', () => {
+    expect(TICK_INTERVAL_MS).toBeLessThanOrEqual(250);
+  });
+
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   it('이전 실행이 끝나지 않으면 겹쳐 실행하지 않는다', async () => {

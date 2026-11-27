@@ -119,6 +119,7 @@ export const ERROR_CODES = [
   'INVALID_STATE',
   'NOT_ESSAY',
   'NOT_SUBMITTED',
+  'NOT_ENDED',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

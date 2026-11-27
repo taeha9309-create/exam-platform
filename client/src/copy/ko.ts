@@ -189,6 +189,8 @@ export const t = {
       level: (n: number) => `${n}점`,
       comments: '교수님께 하고 싶은 말',
       noComments: '의견이 없습니다.',
+      notEnded: '시험이 끝난 뒤에 볼 수 있습니다.',
+      retry: '다시 확인',
       anonymousNote: '응답은 익명으로 저장되며 작성자를 알 수 없습니다. 다만 인원이 적어 의견 내용으로 작성자가 짐작될 수 있습니다.',
     },
   },
@@ -342,6 +344,7 @@ export const t = {
     INVALID_STATE: '현재 상태에서는 처리할 수 없는 요청입니다. 화면을 새로고침해 주세요.',
     NOT_ESSAY: '서술형 문항에만 점수와 피드백을 입력할 수 있습니다.',
     NOT_SUBMITTED: '제출이 끝난 응시에서만 할 수 있는 동작입니다.',
+    NOT_ENDED: '시험이 끝난 뒤에 설문 결과를 볼 수 있습니다.',
   },
 } as const;
 

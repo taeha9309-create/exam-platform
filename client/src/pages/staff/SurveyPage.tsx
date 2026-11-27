@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { ApiError } from '../../api';
 import { t } from '../../copy/ko';
 import { getSurvey, type SurveyResponseDto } from './staffApi';
 import { ErrorAlert, PageShell, useStaffError } from './staffUi';
@@ -11,23 +12,42 @@ export function SurveyPage() {
   const toText = useStaffError();
   const [data, setData] = useState<SurveyResponseDto | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notEnded, setNotEnded] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => {
+    setNotEnded(false);
+    setError(null);
+    setAttempt((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     let alive = true;
     getSurvey(id)
       .then((d) => alive && setData(d))
-      .catch((err) => alive && setError(toText(err)));
+      .catch((err) => {
+        if (!alive) return;
+        // 시험이 끝나기 전에는 오류가 아니라 안내로 보여 준다.
+        if (err instanceof ApiError && err.status === 409 && err.code === 'NOT_ENDED') setNotEnded(true);
+        else setError(toText(err));
+      });
     return () => {
       alive = false;
     };
-  }, [id, toText]);
+  }, [id, toText, attempt]);
 
   const max = Math.max(1, ...(data?.distribution ?? [0]));
 
   return (
     <PageShell title={t.pages.staffSurvey}>
       <ErrorAlert message={error} />
-      {data === null ? (
+      {notEnded ? (
+        <>
+          <p role="status">{t.staff.survey.notEnded}</p>
+          <button type="button" onClick={retry}>
+            {t.staff.survey.retry}
+          </button>
+        </>
+      ) : data === null ? (
         error ? null : <p>{t.staff.common.loading}</p>
       ) : (
         <>

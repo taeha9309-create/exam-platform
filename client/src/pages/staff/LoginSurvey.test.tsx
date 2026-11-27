@@ -73,6 +73,23 @@ describe('설문 요약(S-07)', () => {
     expect(screen.getAllByRole('listitem').length).toBeGreaterThanOrEqual(6);
   });
 
+  it('시험이 끝나기 전(409 NOT_ENDED)이면 오류가 아니라 안내 문구와 다시 확인 버튼을 보여 준다', async () => {
+    vi.mocked(staffApi.getSurvey).mockRejectedValueOnce(new ApiError(409, 'NOT_ENDED'));
+    render(
+      <MemoryRouter initialEntries={['/staff/exams/e1/survey']}>
+        <Routes>
+          <Route path="/staff/exams/:id/survey" element={<SurveyPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect((await screen.findByRole('status')).textContent).toBe(t.staff.survey.notEnded);
+    expect(screen.queryByRole('alert')).toBeNull();
+    vi.mocked(staffApi.getSurvey).mockResolvedValue({ count: 1, distribution: [0, 0, 1, 0, 0], average: 3, comments: [] });
+    fireEvent.click(screen.getByRole('button', { name: t.staff.survey.retry }));
+    expect(await screen.findByText(t.staff.survey.count(1))).toBeTruthy();
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
   it('서버에 아직 없는 API(404)면 한국어 오류 문구가 표시된다', async () => {
     vi.mocked(staffApi.getSurvey).mockRejectedValue(new ApiError(404, 'NOT_FOUND'));
     render(
