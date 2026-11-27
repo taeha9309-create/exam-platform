@@ -3,11 +3,14 @@ import type { TLSSocket } from 'node:tls';
 import { EV } from '@exam/shared';
 import type { Attempt, Exam } from '@prisma/client';
 import { parse as parseCookie } from 'cookie';
+import jwt from 'jsonwebtoken';
 import { Server, type Socket } from 'socket.io';
 import { authenticateStaff, STAFF_COOKIE } from '../auth/staffAuth';
 import { findAttemptByToken } from '../auth/studentSession';
 import { prisma } from '../db';
 import { AppError } from '../errors';
+import { normalizeIpKey } from '../security/loginProtection';
+import { createRateLimiter } from '../security/rateLimit';
 import { saveAnswer } from '../services/submission';
 import { attemptRoom, attemptStatePayload, setIo, staffRoom, studentsRoom } from './broadcast';
 
@@ -16,7 +19,42 @@ const AUTH_ERROR = 'UNAUTHORIZED';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** sessionTokenHash: 소켓 인증 때의 토큰 해시(원문 아님). answer:save가 저장할 때마다 DB의 현재 해시와 비교한다(세션 폐기 감지). */
-type SocketData = { role: 'student'; attemptId: string; examId: string; sessionTokenHash: string } | { role: 'staff'; staffId: string };
+type SocketData =
+  | { role: 'student'; attemptId: string; examId: string; sessionTokenHash: string }
+  | { role: 'staff'; staffId: string; tokenExpMs: number };
+
+/** 같은 주체(같은 학생 응시·같은 교수자 계정)가 동시에 가질 수 있는 소켓 수. 넘으면 가장 오래된 것을 끊는다. 탭 두세 개는 정상 사용이다. */
+export const MAX_SOCKETS_PER_PRINCIPAL = 3;
+/** 소켓 인증 실패 한도: IP당 1분 30회. 성공한 연결은 세지 않는다(교실 NAT에서 여러 학생이 같은 IP로 입장한다). */
+export const AUTH_FAIL_MAX = 30;
+export const AUTH_FAIL_WINDOW_MS = 60_000;
+/** 열린 교수자 소켓의 계정 재확인 기본 주기 */
+export const STAFF_RECHECK_MS = 60_000;
+/** setTimeout이 다룰 수 있는 최대 지연(약 24.8일). 넘으면 즉시 실행되어 버린다. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+export interface AttachSocketOptions {
+  /** 교수자 소켓의 DB 계정 재확인 주기(ms). 기본 60초. 테스트에서 줄여 넣는다 */
+  staffRecheckMs?: number;
+  /** 서버 시계(ms). 토큰 exp 비교와 인증 실패 한도에 쓴다. 기본 Date.now. 테스트에서 가짜 시계를 넣는다 */
+  now?: () => number;
+  /**
+   * 앞단 프록시 수(app.ts의 trustProxy와 같은 값). 0(기본)이면 X-Forwarded-For를 전혀 믿지 않고 소켓 주소를 쓴다.
+   * n>0이면 오른쪽에서 n번째(프록시가 붙인) 항목을 쓴다. 클라이언트가 왼쪽에 끼워 넣은 값은 무시된다.
+   */
+  trustProxy?: number;
+}
+
+/** 한도 집계용 클라이언트 IP. 기본은 TCP 소켓 주소(위조 불가). trustProxy가 있을 때만 X-Forwarded-For의 신뢰 가능한 항목을 쓴다. */
+function clientIp(req: IncomingMessage, trustProxy: number): string | undefined {
+  if (trustProxy > 0) {
+    const raw = req.headers['x-forwarded-for'];
+    const parts = (Array.isArray(raw) ? raw.join(',') : raw)?.split(',').map((x) => x.trim()).filter(Boolean) ?? [];
+    const picked = parts[parts.length - trustProxy];
+    if (picked) return picked;
+  }
+  return req.socket.remoteAddress;
+}
 
 /**
  * answer:save 소켓당 속도 제한(토큰 버킷). 정상 자동 저장은 문항당 1초 디바운스 + 5초 주기라 초당 몇 건이지만,
@@ -107,8 +145,13 @@ async function authenticate(socket: Socket): Promise<SocketData | null> {
   }
 
   // 교수자: HTTP와 같은 authenticateStaff(서명·만료 검증 + DB 재조회).
-  const staff = await authenticateStaff(staffTokenFromCookieHeader(socket.handshake.headers.cookie));
-  return staff ? { role: 'staff', staffId: staff.id } : null;
+  const rawToken = staffTokenFromCookieHeader(socket.handshake.headers.cookie);
+  const staff = await authenticateStaff(rawToken);
+  if (!staff) return null;
+  // authenticateStaff가 서명·만료를 이미 검증했으므로 여기서는 exp만 읽는다(검증된 토큰이라 decode로 충분하다).
+  const exp = typeof rawToken === 'string' ? (jwt.decode(rawToken) as { exp?: unknown } | null)?.exp : undefined;
+  if (typeof exp !== 'number') return null; // exp 없는 토큰은 만료 시각에 끊을 수 없어 받지 않는다(우리가 발급한 토큰에는 항상 있다).
+  return { role: 'staff', staffId: staff.id, tokenExpMs: exp * 1000 };
 }
 
 type Ack = (res: { ok: boolean; code?: string }) => void;
@@ -200,7 +243,14 @@ async function syncStudentState(socket: Socket, attemptId: string, examId: strin
 }
 
 /** http 서버에 Socket.IO를 붙인다. 교수자는 쿠키 staff_token, 학생은 handshake.auth.sessionToken으로 인증한다. */
-export function attachSocket(httpServer: HttpServer): Server {
+export function attachSocket(httpServer: HttpServer, options: AttachSocketOptions = {}): Server {
+  const now = options.now ?? Date.now;
+  const staffRecheckMs = options.staffRecheckMs ?? STAFF_RECHECK_MS;
+  const trustProxy = options.trustProxy ?? 0;
+  // 인증 실패 전용 한도(로그인·입장 한도와 별도 인스턴스). 프로세스 메모리에만 있다(rateLimit.ts의 한계와 같다).
+  const authFailLimiter = createRateLimiter({ windowMs: AUTH_FAIL_WINDOW_MS, max: AUTH_FAIL_MAX, maxKeys: 10_000, now });
+  // 주체별 열린 소켓(연결 순서). 끊기면 항상 지우므로 빈 키는 남지 않는다.
+  const byPrincipal = new Map<string, Socket[]>();
   const io = new Server(httpServer, {
     // cors 옵션을 주지 않는다: 다른 출처에 CORS 허용 헤더를 내지 않는다(같은 출처 서비스).
     serveClient: false,
@@ -214,9 +264,15 @@ export function attachSocket(httpServer: HttpServer): Server {
   });
 
   io.use((socket, next) => {
+    const ipKey = normalizeIpKey(clientIp(socket.request, trustProxy));
+    // 한도를 넘은 IP는 DB를 조회하지 않고 같은 고정 메시지로 거절한다(성공·실패·한도를 밖에서 구별할 수 없다).
+    if (!authFailLimiter.check(ipKey).allowed) return next(new Error(AUTH_ERROR));
     authenticate(socket)
       .then((data) => {
-        if (!data) return next(new Error(AUTH_ERROR));
+        if (!data) {
+          authFailLimiter.hit(ipKey); // 실패만 센다. 성공한 연결은 세지 않는다.
+          return next(new Error(AUTH_ERROR));
+        }
         socket.data.role = data.role;
         Object.assign(socket.data, data);
         next();
@@ -232,11 +288,70 @@ export function attachSocket(httpServer: HttpServer): Server {
     const bucket: Bucket = { tokens: ANSWER_SAVE_BURST, at: Date.now() };
     socket.on(EV.ANSWER_SAVE, (payload: unknown, ack: unknown) => void handleAnswerSave(socket, payload, ack, bucket));
 
+    if (socket.disconnected) return; // 연결 직후 이미 끊긴 소켓은 등록·타이머를 만들지 않는다(정리할 disconnect 이벤트가 이미 지나갔을 수 있다).
+    registerPrincipal(socket, data);
+    if (data.role === 'staff') watchStaff(socket, data);
+
     if (data.role === 'student') {
       delete data.attempt; // authenticate가 읽은 값은 낡을 수 있어 쓰지 않는다(아래에서 DB를 다시 읽는다).
       void syncStudentState(socket, data.attemptId, data.examId).catch(() => socket.disconnect(true));
     }
   });
+
+  /** 같은 주체의 소켓을 MAX_SOCKETS_PER_PRINCIPAL개까지만 허용한다. 넘으면 가장 오래된 것을 끊는다. 연결 끊김은 응시 상태를 바꾸지 않는다. */
+  function registerPrincipal(socket: Socket, data: SocketData): void {
+    const key = data.role === 'student' ? `student:${data.attemptId}` : `staff:${data.staffId}`;
+    const list = byPrincipal.get(key) ?? [];
+    list.push(socket);
+    byPrincipal.set(key, list);
+    socket.once('disconnect', () => {
+      const cur = byPrincipal.get(key);
+      if (!cur) return;
+      const rest = cur.filter((x) => x !== socket);
+      if (rest.length === 0) byPrincipal.delete(key);
+      else byPrincipal.set(key, rest);
+    });
+    // 끊긴 소켓의 방은 socket.io가 disconnect 때 정리하고, 위 disconnect 핸들러가 목록에서 뺀다.
+    while (list.length > MAX_SOCKETS_PER_PRINCIPAL) list.shift()!.disconnect(true);
+  }
+
+  /** 교수자 소켓: 토큰 exp 시각에 끊고, 주기적으로 계정이 남아 있는지 DB로 다시 확인한다. 타이머는 disconnect 때 모두 정리한다. */
+  function watchStaff(socket: Socket, data: Extract<SocketData, { role: 'staff' }>): void {
+    let rechecking = false;
+    let expiryTimer: NodeJS.Timeout | undefined;
+    let recheckTimer: NodeJS.Timeout | undefined;
+    const stop = (): void => {
+      if (expiryTimer) clearTimeout(expiryTimer);
+      if (recheckTimer) clearInterval(recheckTimer);
+      expiryTimer = recheckTimer = undefined;
+    };
+    socket.once('disconnect', stop);
+
+    const armExpiry = (): void => {
+      const remaining = data.tokenExpMs - now();
+      if (remaining <= 0) return void socket.disconnect(true);
+      // 아주 긴 지연은 잘라서 다시 건다(깨어날 때마다 서버 시계로 남은 시간을 다시 계산한다).
+      expiryTimer = setTimeout(armExpiry, Math.min(remaining, MAX_TIMER_MS));
+      expiryTimer.unref();
+    };
+    armExpiry();
+
+    recheckTimer = setInterval(() => {
+      if (now() >= data.tokenExpMs) return void socket.disconnect(true);
+      if (rechecking) return;
+      rechecking = true;
+      prisma.staff
+        .findUnique({ where: { id: data.staffId }, select: { id: true } })
+        .then((staff) => {
+          if (!staff) socket.disconnect(true);
+        })
+        .catch(() => {}) // 일시적인 DB 오류로 연결을 끊지 않는다. 다음 주기에 다시 확인한다.
+        .finally(() => {
+          rechecking = false;
+        });
+    }, staffRecheckMs);
+    recheckTimer.unref();
+  }
 
   setIo(io);
   return io;
