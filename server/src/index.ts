@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app';
-import { parsePort } from './config';
+import { parsePort, parseTrustProxyHops } from './config';
 import { startDeadlineTicker } from './jobs/deadlineTicker';
 import { attachSocket } from './realtime/socket';
 
@@ -16,8 +16,14 @@ try {
 
 // 빌드된 화면 위치: server/src(개발)와 server/dist(번들) 모두 두 단계 위의 client/dist. 없으면 API만 제공한다.
 const clientDist = resolve(dirname(fileURLToPath(import.meta.url)), '../../client/dist');
-// 운영(Railway)은 프록시 한 겹 뒤에 있다. 그때만 X-Forwarded-For를 믿는다.
-const trustProxy = process.env.NODE_ENV === 'production' ? 1 : undefined;
+// 운영은 프록시 뒤에 있다. 그때만 X-Forwarded-For를 믿고, 홉 수는 TRUST_PROXY_HOPS(1~3, 기본 1)로 조정한다.
+let trustProxy: number | undefined;
+try {
+  trustProxy = parseTrustProxyHops(process.env);
+} catch (err) {
+  console.error((err as Error).message);
+  process.exit(1);
+}
 
 // 설정이 잘못되면(예: JWT_SECRET 없음·운영에서 32자 미만) 앱 생성 단계에서 실패한다.
 // 배포 로그에 스택 트레이스 대신 원인을 읽을 수 있는 한 줄로 남긴다.
