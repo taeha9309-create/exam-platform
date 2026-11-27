@@ -120,9 +120,9 @@
 | ID 방식에 따라 **ID 안에 생성 시각이 들어 있다**(cuid, UUID v7) | 설문을 완전 익명으로 하기로 한 결정(D-015)을 스키마에 옮기다 의심 | 설문 응답 ID를 시각 정보가 없는 UUID v4로 하고, ID 형식과 컬럼 목록을 테스트로 고정 |
 | `rejects.toThrow()`만으로는 **엉뚱한 이유로 통과하는 테스트**를 막지 못한다. Prisma의 CHECK 위반은 코드가 없는 오류로 던져진다 | 리뷰 지적 후 실제 오류를 출력해 측정 | 오류 종류·대상까지 단언하는 헬퍼 + 헬퍼를 검증하는 메타 테스트 |
 | **Railway의 설정 파일(`railway.json`)이 2026-12-01에 읽기가 중단되고, 새 서비스는 쓸 수 없다** | 배포 방법을 조사하다 검색 결과에서 발견, 공식 문서(Config as Code·Infrastructure as Code 페이지)로 원문 확인 | 설정 파일 없이 서비스 설정(빌드·시작·**Pre-deploy** 명령)과 표준 `package.json` 스크립트로 구성. 계획서의 `railway.json` 계획을 변경 |
-| 배포할 때 **새 버전이 뜨기 전에** DB 마이그레이션을 적용해야 하고, 실패하면 배포가 멈춰야 한다 | Railway 공식 문서의 Pre-deploy Command | 마이그레이션(`prisma migrate deploy`)을 Pre-deploy에서 실행 |
+| 배포할 때 **새 버전이 뜨기 전에** DB 마이그레이션을 적용해야 하고, 실패하면 배포가 멈춰야 한다 | Railway 공식 문서의 Pre-deploy Command | 마이그레이션(`prisma migrate deploy`)을 Pre-deploy에서 실행(이후 플랫폼이 Render 무료로 바뀌어 Pre-deploy를 쓸 수 없게 되어 Start Command 앞으로 옮김, 7절) |
 | 화면과 API를 한 서버가 제공할 때 **새로고침하면 404**가 난다(화면 라우트는 서버에 파일이 없다) | 화면 라우트를 `index.html`로 돌려주는 규칙이 필요함을 설계 중 인지 | 확장자·숨김 세그먼트가 있는 경로는 404, 해시 파일은 오래 캐시·`index.html`은 `no-cache`. 테스트 17개 |
-| 프록시(Railway) 뒤에서는 모든 요청의 IP가 프록시 IP로 보인다 | 학생 입장 횟수 제한이 IP 기준이라는 요구(계획 1 Task 8)에서 예상 | 운영에서만 `trust proxy`를 켜서 `X-Forwarded-For`의 클라이언트 IP를 사용(프록시 없이 켜면 IP를 위조당할 수 있음) |
+| 프록시(배포 플랫폼) 뒤에서는 모든 요청의 IP가 프록시 IP로 보인다 | 학생 입장 횟수 제한이 IP 기준이라는 요구(계획 1 Task 8)에서 예상 | 운영에서만 `trust proxy`를 켜서 `X-Forwarded-For`의 클라이언트 IP를 사용(프록시 없이 켜면 IP를 위조당할 수 있음) |
 
 *(이후 추가 예정: Socket.IO 실시간 통신, Prisma·PostgreSQL 트랜잭션, 부하 테스트, 우회 시나리오 테스트(PRD 성공 기준 5))*
 
@@ -130,30 +130,36 @@
 
 ## 7. 배포: 프록시 뒤에서 달라지는 것들
 
-이 절은 **배포 전에** 코드·ADR·테스트에서 확인되는 사실만 적은 것이다. 실제 Railway 배포 결과와 수치는 아직 없으며, 확인하지 못한 것은 "미확인"으로 표시했다.
+이 절은 **배포 전에** 코드·ADR·테스트에서 확인되는 사실만 적은 것이다. 실제 배포 결과와 수치는 아직 없으며, 확인하지 못한 것은 "미확인"으로 표시했다. 배포 플랫폼은 처음 Railway로 조사했다가 **Render 무료 요금제**로 바뀌었다(사용자 결정). 플랫폼 사실은 웹 검색으로 확인한 Render 공식 문서 기준 내용이며 배포 시점에 화면·문서로 다시 확인해야 한다.
 
 ### 몰랐던 것
-- **프록시 뒤의 `req.ip`**: 프록시가 있으면 서버가 보는 연결 상대는 프록시라서, 기본값으로는 모든 요청의 IP가 같게 보인다. 그래서 `X-Forwarded-For` 헤더를 읽어야 하는데, 이 헤더는 클라이언트가 직접 써서 보낼 수도 있다. Express의 `trust proxy`에 **프록시가 몇 겹인지(홉 수)** 를 정확히 알려 줘야 한다. 프록시가 없는데 켜면 IP를 위조당하고(로그인 시도 제한 우회), 실제보다 적게 잡으면 모두 프록시 IP로 보여 전원이 함께 차단된다. 이 서버는 `NODE_ENV=production`일 때만 1을 쓴다(`server/src/index.ts`). Railway가 실제로 프록시 1겹인지는 **미확인**이다(작업 지시서의 가정: 가장 오른쪽 값이 Railway가 덧붙인 값).
+- **프록시 뒤의 `req.ip`**: 프록시가 있으면 서버가 보는 연결 상대는 프록시라서, 기본값으로는 모든 요청의 IP가 같게 보인다. 그래서 `X-Forwarded-For` 헤더를 읽어야 하는데, 이 헤더는 클라이언트가 직접 써서 보낼 수도 있다. Express의 `trust proxy`에 **프록시가 몇 겹인지(홉 수)** 를 정확히 알려 줘야 한다. 프록시가 없는데 켜면 IP를 위조당하고(로그인 시도 제한 우회), 실제보다 적게 잡으면 모두 프록시 IP로 보여 전원이 함께 차단된다. 이 서버는 `NODE_ENV=production`일 때만 1을 쓴다(`server/src/index.ts`). Render 프록시가 실제로 몇 겹인지는 공식 문서에서 **확인하지 못했다(미확인)**. 커뮤니티 보고로는 Render 프록시가 클라이언트가 보낸 `X-Forwarded-For`를 지우지 않고 뒤에 덧붙인다고 하므로, 홉 수가 맞아야 위조 값이 아니라 프록시가 덧붙인 값이 쓰인다. 그래서 배포 후 위조 헤더로 한도 우회 여부를 직접 시험하도록 했고, 홉 수를 환경변수(`TRUST_PROXY_HOPS`, 별도 작업으로 추가 중)로 조정할 수 있게 하는 중이다.
 - **Origin 검사와 `Host`·`X-Forwarded-Proto`**: 같은 출처인지 `스킴://Host`를 만들어 Origin과 문자열 전체로 비교한다(`originCheck.ts`). 프록시가 TLS를 끝내면 서버는 `http`로 받으므로 스킴을 `X-Forwarded-Proto`에서 가져와야 `https` Origin과 맞는다. HTTP API는 `trust proxy`가 켜진 경우 `req.protocol`이 이를 따른다. 웹소켓 쪽은 `socket.ts`가 직접 헤더를 읽는데, **production에서만** 이 헤더를 믿는다(헤더는 위조 가능하므로 프록시가 없는 개발·테스트에서는 무시, `trust proxy`와 같은 조건).
 - **웹소켓의 Origin 검사와 JSONP 폴링 우회**: 웹소켓 핸드셰이크와 fetch 폴링은 브라우저가 Origin을 붙이지만, Engine.IO의 JSONP 폴링은 `<script src>`로 요청되어 **Origin 없이 쿠키가 실릴 수 있다**. Origin이 없으면 허용하는 규칙만으로는 이 경로가 통과한다. 코드 리뷰(작업 지시서 기준 Opus 리뷰)에서 발견되어, `allowRequest`에서 JSONP(`j` 쿼리)를 거부하고 Origin이 없을 때는 `Sec-Fetch-Site`가 `same-origin`·`none`이 아니면 거부하도록 수정했다. 테스트: `server/test/realtime.test.ts`("JSONP·Fetch Metadata·옵션").
 - **Secure 쿠키와 HTTPS**: 교수자 쿠키는 `httpOnly`, `sameSite: 'lax'`이고 `secure`는 production에서만 켠다(`staffAuth.ts`). Secure 쿠키는 HTTPS에서만 전송되므로 production을 `http`로 열면 로그인 쿠키가 붙지 않는다(개발은 `http://localhost`라 꺼 둔다).
-- **설정 파일 대신 서비스 설정**: Railway의 `railway.json`은 폐지되어 2026-12-01 이후 읽지 않고 새 서비스는 쓸 수 없다(ADR-012, 공식 문서 원문으로 확인). 대신 대시보드의 Build·Start·Pre-deploy 명령과 표준 스크립트를 쓴다. 대가로 설정이 코드로 버전 관리되지 않아 README 절차에 의존한다.
-- **Pre-deploy 마이그레이션**: DB 마이그레이션을 시작 명령에 넣으면 실패해도 앱이 죽은 채 재시작을 반복한다. Pre-deploy에 두면 새 버전이 뜨기 전에 실행되고 **실패 시 배포가 중단**된다(ADR-012).
+- **설정 파일 대신 서비스 설정**: ADR-012는 Railway의 `railway.json`이 폐지(2026-12-01 이후 읽지 않음)되어 설정 파일을 쓰지 않기로 한 결정이다. 플랫폼이 Render로 바뀐 뒤에도 `render.yaml` 같은 설정 파일 없이 대시보드 설정(Build·Start 명령)과 표준 `package.json` 스크립트를 쓴다. 결과적으로 방식은 같지만 ADR-012의 내용(Railway, Pre-deploy)과는 어긋나므로 **ADR 갱신은 별도 사용자 승인이 필요하다**(이 문서에서는 고치지 않았다). 대가로 설정이 코드로 버전 관리되지 않아 README 절차에 의존한다.
+- **무료 플랫폼의 제약(Render 공식 문서 기준)**: (1) 무료 웹 서비스는 15분간 인바운드 트래픽(기존 웹소켓 메시지 포함)이 없으면 잠들고 다음 요청·새 웹소켓 연결 때 약 1분에 걸쳐 깨어난다. (2) 무료 Postgres는 만든 지 30일 뒤 만료(14일 유예 후 삭제), 1GB, 백업 없음. (3) **무료 인스턴스에서는 Pre-deploy Command를 쓸 수 없다**(유료 전용). (4) 파일시스템이 휘발성이고 커스텀 도메인이 없다.
+- **Pre-deploy를 못 쓸 때의 마이그레이션**: ADR-012는 마이그레이션을 Pre-deploy에 두면 새 버전이 뜨기 전에 실행되고 실패 시 배포가 중단된다고 했다. 무료에서는 불가하므로 Start Command 앞에 붙인다(`npm run db:deploy -w @exam/server && npm start`). 적용할 마이그레이션이 없으면 바로 끝나 깨어날 때마다 돌아도 안전하고, `&&` 때문에 실패하면 서비스가 시작되지 않는다. 다만 Pre-deploy와 달리 실패해도 이전 버전이 계속 떠 있는지(롤아웃 중단)는 **미확인**이다.
+- **`PORT`와 바인딩**: Render는 `PORT`(기본 10000)를 주입하고 0.0.0.0 바인딩을 요구한다. 서버는 `PORT`를 읽고 `httpServer.listen(port)`에 호스트를 지정하지 않아(Node 기본값, 모든 인터페이스) 코드상 맞는 것으로 확인했다. 실제 동작은 배포 후 확인한다.
 
 ### 공부한 자료와 방법
 - 읽은 코드: `server/src/app.ts`, `index.ts`, `static.ts`, `security/originCheck.ts`, `realtime/socket.ts`, `auth/staffAuth.ts`, `scripts/demo-reset.ts`. 읽은 문서: `docs/DECISIONS.md`의 ADR-012(및 ADR-003·004·005의 관련 부분).
 - 테스트로 확인된 것: 화면 폴백·404 규칙(`static.test.ts`), Origin 검사 규칙(`originCheck.test.ts`), 소켓 JSONP·Fetch Metadata(`realtime.test.ts`).
-- Express `trust proxy`와 Railway의 프록시 동작에 대한 공식 문서는 이 절을 쓰는 시점에 새로 읽지 않았다(**미확인**). 배포 후 실제 헤더를 확인해야 한다.
+- 플랫폼 제약(잠듦·DB 30일 만료·Pre-deploy 불가·PORT)은 웹 검색으로 찾은 Render 공식 문서 내용을 전달받아 반영했다(이 절 작성자가 원문을 직접 열어 보지는 않았다). 프록시 홉 수와 `X-Forwarded-For` 처리는 공식 문서에서 찾지 못했고 커뮤니티 보고만 있다(**미확인**). Express `trust proxy` 문서도 새로 읽지 않았다. 배포 후 실제 헤더를 확인해야 한다.
+- 미확인: 무료 요금제의 카드 등록 필요 여부, 무료 DB의 외부(External) 접속 허용·IP 허용 목록 기본값, 서비스 중지·삭제 메뉴 이름, `.node-version` 24 지원 여부(빌드 로그에서 확인).
 
 ### 서비스에 적용한 과정과 결과
 - 운영에서만 `trust proxy`(1)를 켜고, 로그인·입장 시도 제한은 `req.ip`만 쓴다(헤더를 직접 파싱하지 않음). 위조 가능성은 홉 수가 맞아야 막힌다는 전제에 의존한다.
 - HTTP와 웹소켓 모두 Origin을 문자열 전체 일치로 검사하고, 소켓에는 JSONP 차단과 Fetch Metadata 검사를 추가했다. 단, 소켓의 Origin 규칙은 `originCheck.ts`와 **복제**되어 있어 규칙을 바꾸면 두 곳을 함께 고쳐야 한다(`socket.ts` 주석).
-- 데모 데이터는 서비스가 아니라 사용자 PC에서 `demo:reset`으로 만든다. `DEMO_STAFF_PASSWORD`·`DEMO_PASSCODE`는 서버 코드가 읽지 않으므로 서비스 변수에 두지 않는다(README "배포 (Railway)").
+- 데모 데이터는 서비스가 아니라 사용자 PC에서 `demo:reset`으로 만든다. `DEMO_STAFF_PASSWORD`·`DEMO_PASSCODE`는 서버 코드가 읽지 않으므로 서비스 변수에 두지 않는다(README "배포 (Render 무료)").
+- 무료 제약을 설계에 반영했다: 마이그레이션을 Start Command 앞으로 이동, DB는 제출·평가 시점(12/7 전후)에 맞춰 만들고 만료 전에 새 DB를 만들어 `demo:reset`으로 다시 채우는 절차, 시연 몇 분 전 서비스 깨우기와 평가자 안내 문구("처음 접속이 느리면 1분 기다리세요"). 외부 핑으로 깨워 두는 방식은 효과·약관을 확인하지 못해(미확인) 권하지 않는다.
 - 결과: 배포 전이라 **없음**.
 
 ### 배포 후 확인할 것
 (체크리스트 전체는 README "배포 후 검증 체크리스트". 여기에는 학습 가치가 있는 항목만 남긴다. 결과는 확인한 뒤 기입한다.)
-- [ ] 실제 요청에서 `req.ip`가 클라이언트 IP인지(5회 틀린 로그인이 그 PC만 막고 다른 네트워크는 막지 않는지) — `trust proxy` 홉 수 가정 검증. 결과: (배포 후 기입)
-- [ ] 같은 출처 로그인이 Railway의 `Host`·`X-Forwarded-Proto` 아래에서 Origin 검사를 통과하는지, 쿠키가 Secure로 설정되는지. 결과: (배포 후 기입)
-- [ ] 웹소켓이 Railway 프록시를 통과하는지, 소켓 Origin 검사가 production에서 같은 출처 연결을 허용하는지(입장 현황 실시간 갱신). 결과: (배포 후 기입)
-- [ ] Pre-deploy 마이그레이션이 배포 로그에서 새 버전 시작 전에 실행되는지. 결과: (배포 후 기입)
+- [ ] 실제 요청에서 `req.ip`가 클라이언트 IP인지(5회 틀린 로그인이 그 PC만 막고 휴대폰 데이터는 막지 않는지) — `trust proxy` 홉 수 가정 검증. 결과: (배포 후 기입)
+- [ ] 같은 PC에서 `X-Forwarded-For`를 위조해 로그인을 6회 시도해도 429가 나는지(한도 우회 여부). 결과: (배포 후 기입)
+- [ ] 같은 출처 로그인이 Render 프록시의 `Host`·`X-Forwarded-Proto` 아래에서 Origin 검사를 통과하는지, 쿠키가 Secure로 설정되는지. 결과: (배포 후 기입)
+- [ ] 웹소켓이 Render 프록시를 통과하는지, 소켓 Origin 검사가 production에서 같은 출처 연결을 허용하는지(입장 현황 실시간 갱신), 잠든 뒤 새 웹소켓 연결이 깨우는지. 결과: (배포 후 기입)
+- [ ] Start Command의 마이그레이션이 배포 로그에서 서버 시작 전에 실행되는지, 깨어날 때마다 돌아도 문제없는지. 결과: (배포 후 기입)
+- [ ] 첫 접속 지연 시간과 `.node-version` 24 빌드 여부(수치는 배포 후 기입). 결과: (배포 후 기입)
