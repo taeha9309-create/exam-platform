@@ -40,6 +40,7 @@ DEMO_STAFF_PASSWORD=<교수자 비밀번호> npm run demo:reset
 NODE_ENV=production DATABASE_URL=<운영 DB 주소> DEMO_STAFF_PASSWORD=<교수자 비밀번호> DEMO_PASSCODE=<6자리 숫자> npm run demo:reset
 ```
 
+- **실행 전에 `DATABASE_URL`이 대상 DB인지 반드시 확인하세요.** 이 명령은 `.env`의 `DATABASE_URL`을 자동으로 읽습니다(`--env-file-if-exists=.env`). 개발 PC의 `.env`가 운영 DB를 가리키면 의도치 않게 운영 DB의 데모 데이터를 지우고 다시 만듭니다(데모 교수자 소유 데이터만 영향을 받지만 시연 중이라면 시험이 초기화됩니다). 대상 DB를 바꿀 때는 위 예시처럼 `DATABASE_URL`을 명령줄로 직접 지정하세요.
 - `DEMO_STAFF_PASSWORD`(필수): 8자 이상. 코드·문서·로그에 남지 않습니다. 셸 기록에 남기기 싫다면 `.env`(커밋 금지)에 두거나 프롬프트에서 입력해 주입하세요.
 - `DEMO_PASSCODE`: 학생 입장 비밀번호(6자리 숫자). `NODE_ENV=production`에서는 명시하지 않으면 실행을 거부합니다(알려진 기본값이 운영에 남는 것을 막기 위해).
 - 만들어지는 것: 교수자 `demo@exam.local`, 시험 `[데모] 웹 프로그래밍 기말 시험`(객관식 5 + 서술형 2, 제한 30분, 상태 "입장 중"), 명단 `20269001`~`20269020`.
@@ -60,5 +61,7 @@ DATABASE_URL=postgresql://exam:exam@localhost:5432/exam_e2e JWT_SECRET=<32자 �
 # 배포 URL 대상 (서버를 띄우지 않음, 미리 demo:reset 필요)
 PLAYWRIGHT_BASE_URL=https://<서비스 주소> DEMO_STAFF_PASSWORD=<값> DEMO_PASSCODE=<값> npm run e2e
 ```
+
+**배포 URL 대상 실행은 배포 서버의 데이터를 바꿉니다.** 데모 시험을 시작·종료하고, 학생01의 응시와 설문을 만들고, 데모 교수자 소유의 `[데모] 1분 마감 시험`을 추가합니다. 평가자 시연 직전에는 실행하지 말고, 실행했다면 **끝난 뒤 반드시 `demo:reset`으로 되돌리세요**(시험 코드도 새로 바뀌므로 제출 안내의 입장 주소를 다시 확인).
 
 결과 보고서는 `playwright-report/`, 스크린샷은 `test-results/`에 생깁니다(커밋 제외). 제한 시간 1분짜리 마감 시험이 있어 전체 실행에 약 1분 20초가 걸립니다.
