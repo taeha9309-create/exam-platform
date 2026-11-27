@@ -28,6 +28,8 @@ export interface SignalCollectorOptions {
   heartbeatEnabled: boolean;
   pasteMode: 'RECORD' | 'BLOCK';
   getQuestionId(): string | null;
+  /** BLOCK 모드에서 실제로 preventDefault한 순간 호출(안내 문구 표시용). enabled·신호 생성과 무관. */
+  onPasteBlocked?: (kind: 'PASTE' | 'DROP') => void;
 }
 
 function safeStorage(): Storage | null {
@@ -163,7 +165,10 @@ export function useSignalCollector(options: SignalCollectorOptions): { awayNow: 
     const onClipboardLike = (type: 'PASTE' | 'DROP') => (e: Event) => {
       if (!inAnswerField(e.target)) return;
       const blocked = opts.current.pasteMode === 'BLOCK';
-      if (blocked) e.preventDefault();
+      if (blocked) {
+        e.preventDefault();
+        opts.current.onPasteBlocked?.(type);
+      }
       if (!opts.current.enabled) return;
       let length = 0;
       try {

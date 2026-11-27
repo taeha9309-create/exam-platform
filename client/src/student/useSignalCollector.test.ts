@@ -259,6 +259,41 @@ describe('붙여넣기·드롭', () => {
     await tick(0);
     expect(signals(sent)).toHaveLength(0);
   });
+
+  it('onPasteBlocked: BLOCK에서 막는 순간 종류와 함께 호출된다(enabled가 꺼져 있어도)', async () => {
+    const onPasteBlocked = vi.fn();
+    setup({ pasteMode: 'BLOCK', enabled: false, heartbeatEnabled: false, onPasteBlocked });
+    const ta = makeTextarea();
+    firePaste(ta, 'abc');
+    expect(onPasteBlocked).toHaveBeenCalledTimes(1);
+    expect(onPasteBlocked).toHaveBeenLastCalledWith('PASTE');
+    const ev = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, 'dataTransfer', { value: { getData: () => 'x' } });
+    act(() => void ta.dispatchEvent(ev));
+    expect(onPasteBlocked).toHaveBeenCalledTimes(2);
+    expect(onPasteBlocked).toHaveBeenLastCalledWith('DROP');
+  });
+
+  it('onPasteBlocked: RECORD와 입력란이 아닌 곳에서는 호출되지 않는다', async () => {
+    const onPasteBlocked = vi.fn();
+    setup({ pasteMode: 'RECORD', heartbeatEnabled: false, onPasteBlocked });
+    firePaste(makeTextarea(), 'abc');
+    expect(onPasteBlocked).not.toHaveBeenCalled();
+    const b = setup({ pasteMode: 'BLOCK', heartbeatEnabled: false, onPasteBlocked });
+    const div = document.createElement('div');
+    document.body.appendChild(div);
+    firePaste(div, 'abc');
+    expect(onPasteBlocked).not.toHaveBeenCalled();
+    b.hook.unmount();
+  });
+
+  it('onPasteBlocked: 언마운트 뒤에는 호출되지 않는다', async () => {
+    const onPasteBlocked = vi.fn();
+    const { hook } = setup({ pasteMode: 'BLOCK', heartbeatEnabled: false, onPasteBlocked });
+    hook.unmount();
+    firePaste(makeTextarea(), 'abc');
+    expect(onPasteBlocked).not.toHaveBeenCalled();
+  });
 });
 
 describe('오프라인 큐', () => {

@@ -111,7 +111,8 @@ export function createSignalQueue(storage: Storage | null, key: string) {
             } catch {
               res = { ok: false };
             }
-            if (!res.ok && res.code !== 'INVALID') return;
+            // INVALID·NOT_ACTIVE는 영구 거절(재시도해도 같은 결과)이라 버린다. 그 밖의 실패(BUSY·RATE·시간 초과 등)는 남겨 재시도한다.
+            if (!res.ok && res.code !== 'INVALID' && res.code !== 'NOT_ACTIVE') return;
             // 보내는 중에 상한 처리로 head가 빠졌을 수 있으니 seq로 찾아 지운다.
             items = items.filter((m) => m.seq !== head.seq);
             persistQueue();

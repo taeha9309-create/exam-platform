@@ -114,6 +114,29 @@ describe('createSignalQueue', () => {
     expect(n).toBe(1);
   });
 
+  it('서버가 NOT_ACTIVE로 거절한 건도 영구 거절이라 버린다', async () => {
+    const q = createSignalQueue(storage, 'exam:EX');
+    q.enqueue(msg(q.nextSeq()));
+    q.enqueue(msg(q.nextSeq()));
+    const seen: number[] = [];
+    await q.drain(async (m) => {
+      seen.push(m.seq);
+      return m.seq === 1 ? { ok: false, code: 'NOT_ACTIVE' } : { ok: true };
+    });
+    expect(seen).toEqual([1, 2]);
+    expect(q.size()).toBe(0);
+  });
+
+  it('BUSY·RATE·코드 없는 실패는 버리지 않고 남긴다', async () => {
+    for (const code of ['BUSY', 'RATE', undefined]) {
+      const st = memStorage();
+      const q = createSignalQueue(st, 'exam:EX');
+      q.enqueue(msg(q.nextSeq()));
+      await q.drain(async () => ({ ok: false, code }));
+      expect(q.size()).toBe(1);
+    }
+  });
+
   it('서버가 INVALID로 거절한 건은 버려 큐가 막히지 않는다', async () => {
     const q = createSignalQueue(storage, 'exam:EX');
     q.enqueue(msg(q.nextSeq()));
