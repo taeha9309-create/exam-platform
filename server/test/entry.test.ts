@@ -584,9 +584,9 @@ describe('POST /api/attempts/:id/actions', () => {
     expect((await act('00000000-0000-4000-8000-000000000000', { type: 'APPROVE_ENTRY', reason: 'x' })).status).toBe(404);
   });
 
-  it('지원하지 않는 type은 400 UNSUPPORTED_ACTION', async () => {
+  it('클라이언트가 보낼 수 없는 type(시스템 전용 AUTO_PAUSE 등)은 400 UNSUPPORTED_ACTION', async () => {
     const { id } = await pendingLate();
-    for (const type of ['WARN', 'PAUSE', 'TERMINATE', 'nope']) {
+    for (const type of ['AUTO_PAUSE', 'nope']) {
       const res = await act(id, { type, reason: 'x' });
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('UNSUPPORTED_ACTION');
