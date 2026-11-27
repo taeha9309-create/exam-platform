@@ -548,6 +548,14 @@ describe('GET /api/student/attempt', () => {
     for (const bad of ['correctChoiceId', 'passcode', 'Hash']) expect(text).not.toContain(bad);
   });
 
+  it('surveyDone: 설문 전 false, 설문 완료 표시 뒤 true(새로고침해도 이미 낸 설문이 다시 보이지 않게)', async () => {
+    const exam = await openExam();
+    const first = await confirm(body(exam));
+    expect((await me(first.body.sessionToken)).body.surveyDone).toBe(false);
+    await prisma.attempt.update({ where: { id: first.body.attempt.id }, data: { surveyDone: true } });
+    expect((await me(first.body.sessionToken)).body.surveyDone).toBe(true);
+  });
+
   it('재발급 전에 입장한 학생도 재발급 뒤 200', async () => {
     const exam = await openExam();
     const first = await confirm(body(exam));

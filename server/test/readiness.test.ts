@@ -300,7 +300,7 @@ describe('준비 완료(F-10)', () => {
     const text = JSON.stringify(res.body);
     expect(text).not.toContain('123456');
     expect(text).not.toContain(a.attempt.sessionTokenHash);
-    expect(Object.keys(res.body).sort()).toEqual(['deadline', 'extraSeconds', 'needs', 'serverNow', 'state', 'violationCount']);
+    expect(Object.keys(res.body).sort()).toEqual(['deadline', 'extraSeconds', 'needs', 'serverNow', 'state', 'surveyDone', 'violationCount']);
   });
 });
 
