@@ -1,0 +1,115 @@
+.page {
+  font-family: system-ui, sans-serif;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 28rem;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.error {
+  color: #b00020;
+  margin: 0.5rem 0;
+}
+.warn {
+  color: #7a4b00;
+  background: #fff4e0;
+  border: 1px solid #e0b060;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+.hint {
+  color: #555;
+  font-size: 0.9rem;
+}
+.notice {
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 1rem;
+}
+.recording {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  background: #7a1020;
+  color: #fff;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+}
+.takingLayout {
+  display: grid;
+  grid-template-columns: 11rem 1fr;
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+.qList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.qButton {
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+}
+.qButtonCurrent {
+  border-color: #1a56db;
+  font-weight: 700;
+}
+.qDone {
+  color: #1b5e20;
+}
+.choice {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.4rem 0;
+}
+.textarea {
+  width: 100%;
+  min-height: 12rem;
+  font-family: inherit;
+  font-size: 1rem;
+}
+.prompt {
+  white-space: pre-wrap;
+}
+.timer {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.lock {
+  border: 2px solid #b00020;
+  border-radius: 6px;
+  padding: 1.5rem;
+  margin-top: 1rem;
+  text-align: center;
+}
+.danger {
+  background: #b00020;
+  color: #fff;
+}

@@ -6,8 +6,9 @@ import { ExamRunPage } from './pages/staff/ExamRunPage';
 import { LoginPage } from './pages/staff/LoginPage';
 import { ResultsPage } from './pages/staff/ResultsPage';
 import { SurveyPage } from './pages/staff/SurveyPage';
+import { StudentFlow } from './pages/student/StudentFlow';
 
-// 임시 화면: 제목만 보인다. 교수자 화면은 Task 14에서 채웠고, 학생 화면은 Task 15에서 채운다.
+// 임시 화면: 존재하지 않는 주소 안내에만 쓴다.
 function Placeholder({ title, body }: { title: string; body?: string }) {
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: '2rem' }}>
@@ -24,7 +25,7 @@ export const routes: RouteObject[] = [
   { path: '/staff/exams/:id/run', element: <ExamRunPage /> },
   { path: '/staff/exams/:id/results', element: <ResultsPage /> },
   { path: '/staff/exams/:id/survey', element: <SurveyPage /> },
-  { path: '/e/:examCode', element: <Placeholder title={t.pages.studentExam} /> },
+  { path: '/e/:examCode', element: <StudentFlow /> },
   {
     path: '*',
     element: <Placeholder title={t.pages.notFoundTitle} body={t.pages.notFoundBody} />,
