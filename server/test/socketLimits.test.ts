@@ -189,6 +189,50 @@ describe('인증 실패 속도 제한(M-2)', () => {
   }, 60_000);
 });
 
+describe('프록시 뒤 클라이언트 IP(trustProxy)', () => {
+  const fail = (sv: Server, xff: string, i: number) => connectError(open(sv, { auth: { sessionToken: `bad-${xff}-${i}` }, headers: { 'X-Forwarded-For': xff } }));
+
+  it('(a) trustProxy 1: 오른쪽 값이 다른 클라이언트는 한도가 따로 계산된다', async () => {
+    const sv = await start({ trustProxy: 1 });
+    for (let i = 0; i < 30; i++) await fail(sv, '198.51.100.1', i);
+    const spy = vi.spyOn(studentSession, 'findAttemptByToken');
+    await fail(sv, '198.51.100.2', 0);
+    expect(spy).toHaveBeenCalledTimes(1); // B는 DB까지 간다(거절되지 않음)
+  }, 60_000);
+
+  it('(b) 같은 오른쪽 값에서는 31번째가 DB 없이 거절된다', async () => {
+    const sv = await start({ trustProxy: 1 });
+    const spy = vi.spyOn(studentSession, 'findAttemptByToken');
+    for (let i = 0; i < 30; i++) await fail(sv, '198.51.100.1', i);
+    await fail(sv, '198.51.100.1', 31);
+    expect(spy).toHaveBeenCalledTimes(30);
+  }, 60_000);
+
+  it('(c) 왼쪽에 위조해 끼운 값은 무시된다', async () => {
+    const sv = await start({ trustProxy: 1 });
+    const spy = vi.spyOn(studentSession, 'findAttemptByToken');
+    for (let i = 0; i < 30; i++) await fail(sv, `10.9.9.${i}, 198.51.100.1`, i);
+    await fail(sv, '203.0.113.7, 198.51.100.1', 31);
+    expect(spy).toHaveBeenCalledTimes(30);
+  }, 60_000);
+
+  it('(d) trustProxy 미지정이면 X-Forwarded-For를 무시한다', async () => {
+    const sv = await start();
+    const spy = vi.spyOn(studentSession, 'findAttemptByToken');
+    for (let i = 0; i < 30; i++) await fail(sv, `198.51.100.${i}`, i);
+    await fail(sv, '198.51.100.200', 31);
+    expect(spy).toHaveBeenCalledTimes(30);
+  }, 60_000);
+
+  it('trustProxy 1인데 헤더가 없으면 소켓 주소로 대체한다', async () => {
+    const sv = await start({ trustProxy: 1 });
+    const spy = vi.spyOn(studentSession, 'findAttemptByToken');
+    for (let i = 0; i < 30; i++) await connectError(open(sv, { auth: { sessionToken: `bad-${i}` } }));
+    await connectError(open(sv, { auth: { sessionToken: 'bad-31' } }));
+    expect(spy).toHaveBeenCalledTimes(30);
+  }, 60_000);
+});
+
 describe('주체당 동시 소켓 수(M-2)', () => {
   it('(d) 같은 학생 토큰으로 4번째 소켓을 열면 가장 오래된 첫 소켓이 끊긴다', async () => {
     const sv = await start();

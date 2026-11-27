@@ -39,7 +39,8 @@ export interface AttachSocketOptions {
   /** 서버 시계(ms). 토큰 exp 비교와 인증 실패 한도에 쓴다. 기본 Date.now. 테스트에서 가짜 시계를 넣는다 */
   now?: () => number;
   /**
-   * 앞단 프록시 수(app.ts의 trustProxy와 같은 값). 0(기본)이면 X-Forwarded-For를 전혀 믿지 않고 소켓 주소를 쓴다.
+   * 앞단 프록시 수(app.ts의 trustProxy와 같은 값, index.ts가 한 변수로 둘에 넘긴다). 운영에서 프록시가 N겹이면 N, 비운영·프록시 없음은 생략(0).
+   * 프록시 뒤인데 0이면 모든 클라이언트가 프록시 주소 하나로 보여 인증 실패 한도가 서비스 전체에 걸린다. 0(기본)이면 X-Forwarded-For를 전혀 믿지 않고 소켓 주소를 쓴다.
    * n>0이면 오른쪽에서 n번째(프록시가 붙인) 항목을 쓴다. 클라이언트가 왼쪽에 끼워 넣은 값은 무시된다.
    */
   trustProxy?: number;
