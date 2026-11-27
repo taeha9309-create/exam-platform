@@ -152,6 +152,85 @@ export const t = {
       attemptLabel: (id: string) => `응시 ${id}`,
       busyHint: '요청이 겹쳤습니다. 잠시 후 다시 시도해 주세요.',
     },
+    // 감독 대시보드(S-04). 상태·신호 문구는 관찰된 사실만 적는다(판정 표현 금지).
+    dash: {
+      title: '학생 현황',
+      empty: '표시할 학생이 없습니다.',
+      noMatch: '검색 결과가 없습니다.',
+      search: '이름·학번 검색',
+      sort: '정렬',
+      sortStudentNo: '학번순',
+      sortAttention: '확인 필요순',
+      networkIncident: (n: number) => `네트워크 장애 의심 (${n}명)`,
+      networkIncidentHelp: '여러 학생의 연결이 동시에 불안정합니다. 이 구간의 연결 신호는 카드 색에 반영되지 않습니다.',
+      violations: (n: number, limit: number) => `위반 ${n}/${limit}`,
+      lastSignal: '최근 신호',
+      noSignal: '신호 없음',
+      ack: '확인',
+      select: '조치',
+      locked: '잠김',
+      lockMark: '🔒',
+      state: {
+        NOT_ENTERED: '미입장',
+        WAITING: '대기',
+        PENDING_APPROVAL: '승인 대기',
+        ACTIVE: '응시',
+        PAUSED: '일시정지',
+        SUBMITTED: '제출',
+        TERMINATED: '종료',
+        REJECTED: '거절',
+      },
+      disconnected: '연결 끊김',
+      away: '이탈 중',
+      consentDeclined: '동의 안 함',
+      actionsFor: (name: string, studentNo: string) => `조치 대상: ${name} (${studentNo})`,
+      noTarget: '카드의 [조치]를 눌러 학생을 선택하세요.',
+      reasonLabel: '사유(경고는 학생에게 보이는 메시지)',
+      quickOk: '현장 확인 결과 문제 없음',
+      quickSelf: '본인 요청',
+      quickWarn: '현장 확인 후 경고',
+      reasonRequired: '사유를 입력해야 조치할 수 있습니다.',
+      pause: '일시정지',
+      resume: '재개',
+      resumeAddTime: (n: number) => `잠겨 있던 시간 ${n}분 추가`,
+      addTime: '시간 추가',
+      minutes: '추가할 시간(분)',
+      minutesInvalid: '1~60 사이의 정수를 입력해 주세요.',
+      warn: '경고 메시지 보내기',
+      terminate: '응시 종료',
+      terminateConfirmTitle: '이 학생의 응시를 종료할까요?',
+      terminateConfirmBody: '종료하면 지금까지의 답안으로 응시가 끝나며 되돌릴 수 없습니다.',
+      resolvedGone: '이미 처리된 요청입니다. 목록에서 지웠습니다.',
+      approvalReasonHint: '사유를 확인하고 필요하면 고쳐 쓴 뒤 눌러 주세요.',
+      /** 신호 요약: 관찰된 사실만 적는다 */
+      signalSummary: (type: string, durationMs: number | null, meta: Record<string, unknown> | null): string => {
+        const blocked = typeof meta?.blocked === 'boolean' ? (meta.blocked ? ' (차단됨)' : ' (기록됨)') : '';
+        switch (type) {
+          case 'LEAVE':
+            return durationMs === null ? '다른 탭/앱으로 이동' : `다른 탭/앱으로 이동 (${Math.round(durationMs / 1000)}초)`;
+          case 'LEAVE_START':
+            return '다른 탭/앱으로 이동 중';
+          case 'FULLSCREEN_EXIT':
+            return '전체화면 해제';
+          case 'PASTE':
+            return `붙여넣기${typeof meta?.length === 'number' ? ` ${meta.length}자` : ''}${blocked}`;
+          case 'DROP':
+            return `끌어놓기${blocked}`;
+          case 'MULTI_MONITOR':
+            return '모니터 여러 대 감지';
+          case 'DISCONNECT':
+            return '연결 끊김';
+          case 'RECONNECT':
+            return '다시 연결됨';
+          case 'HEARTBEAT_GAP':
+            return '상태 신호 끊김';
+          case 'SEQ_GAP':
+            return '신호 순서 누락';
+          default:
+            return '신호 수신';
+        }
+      },
+    },
     results: {
       colStudentNo: '학번',
       colName: '이름',
