@@ -151,3 +151,25 @@ describe('GET /api/exams/:id/survey', () => {
     expect(orders.size).toBeGreaterThan(1);
   });
 });
+
+describe('설문과 제출·시험 잠금의 교착 방지', () => {
+  it('설문 제출과 같은 응시의 submitAttempt를 동시에 반복해도 500·BUSY가 나지 않고 응답 행은 최대 1개', async () => {
+    const { submitAttempt } = await import('../src/services/submission');
+    const exam = await makeExam({ status: 'ENDED' });
+    for (let i = 0; i < 25; i++) {
+      await prisma.surveyResponse.deleteMany();
+      await prisma.attempt.deleteMany();
+      const { token, attempt } = await student('SUBMITTED', exam);
+      const [survey, ...subs] = await Promise.allSettled([
+        post(token, { difficulty: 3, comment: `c${i}` }),
+        submitAttempt(attempt.id, 'STUDENT'),
+        submitAttempt(attempt.id, 'STUDENT'),
+        submitAttempt(attempt.id, 'EXAM_ENDED'),
+      ]);
+      expect(survey.status).toBe('fulfilled');
+      if (survey.status === 'fulfilled') expect(survey.value.status, `round ${i}`).toBe(200);
+      for (const s of subs) expect(s.status, `round ${i}: ${s.status === 'rejected' ? String(s.reason) : ''}`).toBe('fulfilled');
+      expect(await prisma.surveyResponse.count()).toBeLessThanOrEqual(1);
+    }
+  }, 60_000);
+});

@@ -4,7 +4,7 @@ import { findAttemptByToken } from '../auth/studentSession';
 import { prisma } from '../db';
 import { attemptDeadline } from '../domain/deadline';
 import { AppError } from '../errors';
-import { runExamTx } from '../services/examLifecycle';
+import { lockExam, runExamTx } from '../services/examLifecycle';
 import { submitAttempt } from '../services/submission';
 import { confirmEntry, createEntryGuard, recordConsent, recordEnv, studentAttemptView, verifyEntry, type EntryGuardOptions } from '../services/entry';
 import { safeString } from '../validation';
@@ -221,6 +221,9 @@ export function createStudentRouter(options: StudentRouterOptions = {}): Router 
       const difficulty = parsed.data.difficulty ?? null;
 
       await runExamTx(async (tx) => {
+        // 잠금 순서는 항상 시험 → 응시(submitAttempt·조치와 같다). 응답 INSERT의 외래키 검사가 시험 행에 KEY SHARE를 걸므로,
+        // 응시 행만 먼저 잠그면 시험 행을 먼저 잠그는 쪽과 교착(40P01)이 난다.
+        await lockExam(tx, attempt.examId);
         const rows = await tx.$queryRaw<{ state: string; surveyDone: boolean; sessionTokenHash: string }[]>`
           SELECT "state", "surveyDone", "sessionTokenHash" FROM "Attempt" WHERE "id" = ${attempt.id} FOR UPDATE`;
         const cur = rows[0];
