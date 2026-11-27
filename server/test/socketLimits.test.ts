@@ -126,6 +126,36 @@ describe('교수자 소켓 재검증(M-1)', () => {
     await sleep(300);
     expect(spy).not.toHaveBeenCalled();
   });
+
+  it('연결이 끊기면 만료 타이머와 재확인 타이머가 모두 해제된다(남지 않는다)', async () => {
+    // 서버가 만든 타이머 핸들을 가로챈다: 재확인 주기(고유한 값 1234ms)의 interval, 만료(약 12시간)의 timeout.
+    const intervals: Array<{ _destroyed?: boolean }> = [];
+    const expiries: Array<{ _destroyed?: boolean }> = [];
+    const realSetInterval = globalThis.setInterval;
+    const realSetTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, 'setInterval').mockImplementation(((fn: () => void, ms?: number) => {
+      const h = realSetInterval(fn, ms);
+      if (ms === 1234) intervals.push(h as unknown as { _destroyed?: boolean });
+      return h;
+    }) as typeof setInterval);
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => {
+      const h = realSetTimeout(fn, ms);
+      if (typeof ms === 'number' && ms > 11 * 3600_000) expiries.push(h as unknown as { _destroyed?: boolean });
+      return h;
+    }) as typeof setTimeout);
+    const sv = await start({ staffRecheckMs: 1234 });
+    const staff = await makeStaff();
+    const s = open(sv, { cookie: staffCookie(staff.id) });
+    await connected(s);
+    expect(intervals).toHaveLength(1);
+    expect(expiries).toHaveLength(1);
+    expect(intervals[0]!._destroyed).toBeFalsy();
+    expect(expiries[0]!._destroyed).toBeFalsy();
+    s.close();
+    await sleep(500);
+    expect(intervals[0]!._destroyed).toBe(true);
+    expect(expiries[0]!._destroyed).toBe(true);
+  });
 });
 
 describe('인증 실패 속도 제한(M-2)', () => {
@@ -290,6 +320,23 @@ describe('주체당 동시 소켓 수(M-2)', () => {
     await connected(s4);
     expect(await first).toBe('io server disconnect');
     expect(s4.connected && list[1]!.connected && list[2]!.connected).toBe(true);
+  });
+
+  it('일부가 끊기면 슬롯이 반환되어 살아 있는 가장 오래된 소켓이 억울하게 끊기지 않는다', async () => {
+    const sv = await start();
+    const exam = await makeExam();
+    const { token } = await makeAttempt(exam.id);
+    const [a, b, c] = [0, 1, 2].map(() => open(sv, { auth: { sessionToken: token } }));
+    await connected(a!);
+    await connected(b!);
+    await connected(c!);
+    b!.close();
+    c!.close();
+    await sleep(400); // 서버가 b, c의 disconnect를 처리할 시간
+    const d = open(sv, { auth: { sessionToken: token } });
+    await connected(d);
+    expect(await quiet(a!, 'disconnect', 500)).toBe(true); // 살아 있는 소켓은 a, d 둘뿐이라 한도(3) 이내
+    expect(a!.connected).toBe(true);
   });
 
   it('끊긴 뒤 다시 연결하면 슬롯이 반환되어 있다(기록 누수 없음)', async () => {
