@@ -54,7 +54,7 @@ interface Fx {
 async function fixture(over: { state?: Attempt['state']; pausedAt?: Date | null; extraSeconds?: number; studentNo?: string } = {}, exam?: Exam): Promise<Fx> {
   const e = exam ?? (await makeExam({ ownerId: staffId, status: 'RUNNING', passcode: '123456', startedAt: new Date(), endsAt: ENDS_AT() }));
   const qs = await prisma.question.findMany({ where: { examId: e.id }, orderBy: { position: 'asc' } });
-  const roster = await prisma.rosterEntry.findFirstOrThrow({ where: { examId: e.id, ...(over.studentNo ? { studentNo: over.studentNo } : { attempt: null }) } });
+  const roster = await prisma.rosterEntry.findFirstOrThrow({ where: { examId: e.id, ...(over.studentNo ? { studentNo: over.studentNo } : { attempt: null }) }, orderBy: { studentNo: 'asc' } });
   const token = generateToken();
   const attempt = await prisma.attempt.create({
     data: {
@@ -445,13 +445,13 @@ describe('동시성 (i)', () => {
 
 describe('GET /timeline (j)', () => {
   it('신호를 시간순으로, 조치에 staffName을 담고 비밀 값이 없다', async () => {
-    const f = await fixture();
+    const f = await fixture({ studentNo: '20260001' });
     const t0 = Date.now();
     await prisma.signal.create({ data: { attemptId: f.attempt.id, type: 'PASTE', severity: 'WARN', receivedAt: new Date(t0 + 2000), meta: { chars: 5 } } });
     await prisma.signal.create({ data: { attemptId: f.attempt.id, type: 'LEAVE_START', severity: 'WARN', receivedAt: new Date(t0 + 1000) } });
     await prisma.signal.create({ data: { attemptId: f.attempt.id, type: 'LEAVE', severity: 'ALERT', receivedAt: new Date(t0 + 3000), durationMs: 20000 } });
     await act(f.attempt.id, { type: 'WARN', reason: '경고' });
-    await prisma.proctorAction.create({ data: { attemptId: f.attempt.id, staffId: null, type: 'AUTO_PAUSE', reason: '시스템 자동 일시정지(위반 5회)' } });
+    await prisma.proctorAction.create({ data: { attemptId: f.attempt.id, staffId: null, type: 'AUTO_PAUSE', reason: '시스템 자동 일시정지(위반 5회)', createdAt: new Date(Date.now() + 5000) } });
 
     const res = await request(app).get(`/api/attempts/${f.attempt.id}/timeline`).set('Cookie', cookie);
     expect(res.status).toBe(200);
