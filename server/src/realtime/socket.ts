@@ -26,7 +26,13 @@ type SocketData =
 /** 같은 주체(같은 학생 응시·같은 교수자 계정)가 동시에 가질 수 있는 소켓 수. 넘으면 가장 오래된 것을 끊는다. 탭 두세 개는 정상 사용이다. */
 export const MAX_SOCKETS_PER_PRINCIPAL = 3;
 /** 소켓 인증 실패 한도: IP당 1분 30회. 성공한 연결은 세지 않는다(교실 NAT에서 여러 학생이 같은 IP로 입장한다). */
-export const AUTH_FAIL_MAX = 30;
+export const STAFF_AUTH_FAIL_MAX = 30;
+/**
+ * 학생 토큰(handshake.auth.sessionToken) 인증 실패 한도: IP당 1분 200회. 교수자 쿠키 실패 한도와 별도다.
+ * 학생 토큰은 256비트 난수라 추측으로 맞힐 수 없고, 이 한도는 DB 조회 비용 방어가 목적이다(동시 인증 수는 inflight로 따로 막는다).
+ * 교실 공용 IP에서 학생 한 명의 오타·낡은 토큰이 같은 IP의 다른 학생을 막지 않도록 교수자 한도(30)와 분리했다.
+ */
+export const STUDENT_AUTH_FAIL_MAX = 200;
 export const AUTH_FAIL_WINDOW_MS = 60_000;
 /** 열린 교수자 소켓의 계정 재확인 기본 주기 */
 export const STAFF_RECHECK_MS = 60_000;
@@ -44,6 +50,22 @@ export interface AttachSocketOptions {
    * n>0이면 오른쪽에서 n번째(프록시가 붙인) 항목을 쓴다. 클라이언트가 왼쪽에 끼워 넣은 값은 무시된다.
    */
   trustProxy?: number;
+  /** 학생 토큰 인증 실패 한도(IP당 1분). 기본 STUDENT_AUTH_FAIL_MAX. 테스트에서 줄여 넣는다 */
+  studentAuthFailMax?: number;
+  /** 교수자 쿠키 인증 실패 한도(IP당 1분). 기본 STAFF_AUTH_FAIL_MAX */
+  staffAuthFailMax?: number;
+}
+
+/**
+ * 프록시가 X-Forwarded-For에 붙이는 포트를 지운다(`1.2.3.4:5678`, `[v6]:port`, `[v6]`).
+ * 포트가 키에 남으면 연결마다 키가 달라져 한도가 무력해진다. 포트 없는 주소·알 수 없는 형식은 그대로 둔다(콜론이 여러 개인 맨 IPv6 포함).
+ */
+export function stripIpPort(value: string): string {
+  const v4 = /^(\d{1,3}(?:\.\d{1,3}){3}):\d{1,5}$/.exec(value);
+  if (v4) return v4[1]!;
+  const v6 = /^\[([0-9a-fA-F:.]+)\](?::\d{1,5})?$/.exec(value);
+  if (v6) return v6[1]!;
+  return value;
 }
 
 /** 한도 집계용 클라이언트 IP. 기본은 TCP 소켓 주소(위조 불가). trustProxy가 있을 때만 X-Forwarded-For의 신뢰 가능한 항목을 쓴다. */
@@ -52,7 +74,7 @@ function clientIp(req: IncomingMessage, trustProxy: number): string | undefined 
     const raw = req.headers['x-forwarded-for'];
     const parts = (Array.isArray(raw) ? raw.join(',') : raw)?.split(',').map((x) => x.trim()).filter(Boolean) ?? [];
     const picked = parts[parts.length - trustProxy];
-    if (picked) return picked;
+    if (picked) return stripIpPort(picked);
   }
   return req.socket.remoteAddress;
 }
@@ -249,7 +271,18 @@ export function attachSocket(httpServer: HttpServer, options: AttachSocketOption
   const staffRecheckMs = options.staffRecheckMs ?? STAFF_RECHECK_MS;
   const trustProxy = options.trustProxy ?? 0;
   // 인증 실패 전용 한도(로그인·입장 한도와 별도 인스턴스). 프로세스 메모리에만 있다(rateLimit.ts의 한계와 같다).
-  const authFailLimiter = createRateLimiter({ windowMs: AUTH_FAIL_WINDOW_MS, max: AUTH_FAIL_MAX, maxKeys: 10_000, now });
+  // 학생 토큰 실패와 교수자 쿠키 실패는 서로 영향을 주지 않도록 한도를 둘로 나눈다.
+  const staffFailMax = options.staffAuthFailMax ?? STAFF_AUTH_FAIL_MAX;
+  const studentFailMax = options.studentAuthFailMax ?? STUDENT_AUTH_FAIL_MAX;
+  const failLimiters = {
+    staff: createRateLimiter({ windowMs: AUTH_FAIL_WINDOW_MS, max: staffFailMax, maxKeys: 10_000, now }),
+    student: createRateLimiter({ windowMs: AUTH_FAIL_WINDOW_MS, max: studentFailMax, maxKeys: 10_000, now }),
+  };
+  // 진행 중인 인증 수(키: 종류+IP). 한도 확인(동기)과 실패 기록(DB를 기다린 뒤) 사이의 경쟁으로 버스트가 한도를 넘지 못하게,
+  // 거절 판단에 "이미 기록된 실패 + 지금 인증 중인 수"를 쓴다. 인증이 끝나면(성공·실패·오류 모두) 반환하고 0이면 키를 지운다.
+  const inflight = new Map<string, number>();
+  // 지금 인증 중인 엔진 연결. CONNECT를 연달아 보내 미들웨어를 여러 번 돌리는 것을 막는다(연결당 동시 인증 1개).
+  const authenticating = new WeakSet<object>();
   // 주체별 열린 소켓(연결 순서). 끊기면 항상 지우므로 빈 키는 남지 않는다.
   const byPrincipal = new Map<string, Socket[]>();
   const io = new Server(httpServer, {
@@ -265,20 +298,41 @@ export function attachSocket(httpServer: HttpServer, options: AttachSocketOption
   });
 
   io.use((socket, next) => {
+    const conn = socket.client.conn;
+    // 이미 인증 중인 연결의 추가 CONNECT는 DB 조회 없이 거절한다(이미 인증된 연결의 재CONNECT는 socket.io가 따로 처리한다).
+    if (authenticating.has(conn)) return next(new Error(AUTH_ERROR));
+    const auth: unknown = socket.handshake.auth;
+    const kind = typeof auth === 'object' && auth !== null && (auth as Record<string, unknown>).sessionToken !== undefined ? 'student' : 'staff';
+    const limiter = failLimiters[kind];
     const ipKey = normalizeIpKey(clientIp(socket.request, trustProxy));
-    // 한도를 넘은 IP는 DB를 조회하지 않고 같은 고정 메시지로 거절한다(성공·실패·한도를 밖에서 구별할 수 없다).
-    if (!authFailLimiter.check(ipKey).allowed) return next(new Error(AUTH_ERROR));
+    const inflightKey = `${kind}:${ipKey}`;
+    // 이미 기록된 실패 + 진행 중인 인증이 한도를 채우면 DB를 조회하지 않고 같은 고정 메시지로 거절한다(성공·실패·한도를 밖에서 구별할 수 없다).
+    if (limiter.check(ipKey).remaining - (inflight.get(inflightKey) ?? 0) <= 0) return next(new Error(AUTH_ERROR));
+    inflight.set(inflightKey, (inflight.get(inflightKey) ?? 0) + 1);
+    authenticating.add(conn);
+    let released = false;
+    const release = (): void => {
+      if (released) return; // then 안에서 예외가 나 catch가 다시 불러도 한 번만 내린다
+      released = true;
+      authenticating.delete(conn);
+      const left = (inflight.get(inflightKey) ?? 1) - 1;
+      if (left <= 0) inflight.delete(inflightKey);
+      else inflight.set(inflightKey, left);
+    };
     authenticate(socket)
       .then((data) => {
-        if (!data) {
-          authFailLimiter.hit(ipKey); // 실패만 센다. 성공한 연결은 세지 않는다.
-          return next(new Error(AUTH_ERROR));
-        }
+        // 기록을 먼저 하고 진행 중 수를 내린다(그 사이 틈에서 다른 요청이 덜 센 값을 보지 않도록).
+        if (!data) limiter.hit(ipKey); // 실패만 센다. 성공한 연결은 세지 않는다. DB 오류(catch)도 세지 않는다.
+        release();
+        if (!data) return next(new Error(AUTH_ERROR));
         socket.data.role = data.role;
         Object.assign(socket.data, data);
         next();
       })
-      .catch(() => next(new Error(AUTH_ERROR))); // 내부 오류 내용은 밖으로 보내지 않는다.
+      .catch(() => {
+        release();
+        next(new Error(AUTH_ERROR)); // 내부 오류 내용은 밖으로 보내지 않는다.
+      });
   });
 
   io.on('connection', (socket) => {

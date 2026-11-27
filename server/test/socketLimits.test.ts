@@ -1,12 +1,13 @@
 import { EV } from '@exam/shared';
 import { io as connect, type Socket } from 'socket.io-client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as studentSession from '../src/auth/studentSession';
 import { generateToken, hashToken } from '../src/auth/studentSession';
 import { prisma } from '../src/db';
 import { staffCookie } from './helpers/auth';
 import { makeExam, makeStaff, resetDb } from './helpers/db';
 import { startTestServer } from './helpers/server';
+import { stripIpPort } from '../src/realtime/socket';
 
 type Server = Awaited<ReturnType<typeof startTestServer>>;
 const sockets: Socket[] = [];
@@ -14,6 +15,10 @@ const servers: Server[] = [];
 
 // 이 환경은 새 DB 연결에 약 2초가 걸려(Windows+Docker) 기본 5초로는 모자란다.
 vi.setConfig({ testTimeout: 30_000 });
+// 첫 테스트가 DB 연결을 여는 데 걸리는 시간(약 2초 x 동시 연결)이 이벤트 대기 한도를 잡아먹지 않도록 풀을 미리 데운다(불안정 테스트의 원인).
+beforeAll(async () => {
+  await Promise.all(Array.from({ length: 8 }, () => prisma.attempt.findUnique({ where: { sessionTokenHash: 'warmup' } })));
+}, 60_000);
 beforeEach(resetDb);
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -35,7 +40,7 @@ function open(sv: Server, opts: { auth?: Record<string, unknown>; cookie?: strin
   return s;
 }
 
-const once = <T = unknown>(s: Socket, ev: string, ms = 6000) =>
+const once = <T = unknown>(s: Socket, ev: string, ms = 15_000) =>
   new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`timeout waiting ${ev}`)), ms);
     s.once(ev, (v: T) => {
@@ -160,7 +165,7 @@ describe('교수자 소켓 재검증(M-1)', () => {
 
 describe('인증 실패 속도 제한(M-2)', () => {
   it('(c) 같은 IP에서 잘못된 토큰 31번째 연결은 DB 호출 없이 거절된다', async () => {
-    const sv = await start();
+    const sv = await start({ studentAuthFailMax: 30 });
     const spy = vi.spyOn(studentSession, 'findAttemptByToken');
     for (let i = 0; i < 30; i++) {
       const err = await connectError(open(sv, { auth: { sessionToken: `bad-${i}` } }));
@@ -173,7 +178,7 @@ describe('인증 실패 속도 제한(M-2)', () => {
   }, 60_000);
 
   it('한도를 넘으면 유효한 토큰도 같은 고정 메시지로 거절되고 DB를 조회하지 않는다', async () => {
-    const sv = await start();
+    const sv = await start({ studentAuthFailMax: 30 });
     const exam = await makeExam();
     const { token } = await makeAttempt(exam.id);
     for (let i = 0; i < 30; i++) await connectError(open(sv, { auth: { sessionToken: `bad-${i}` } }));
@@ -184,7 +189,7 @@ describe('인증 실패 속도 제한(M-2)', () => {
   }, 60_000);
 
   it('X-Forwarded-For를 바꿔도 한도를 우회할 수 없다', async () => {
-    const sv = await start();
+    const sv = await start({ studentAuthFailMax: 30 });
     const spy = vi.spyOn(studentSession, 'findAttemptByToken');
     for (let i = 0; i < 30; i++) {
       await connectError(open(sv, { auth: { sessionToken: `bad-${i}` }, headers: { 'X-Forwarded-For': `10.0.0.${i}` } }));
@@ -203,7 +208,7 @@ describe('인증 실패 속도 제한(M-2)', () => {
   }, 60_000);
 
   it('성공한 연결은 세지 않는다: 같은 IP에서 성공 연결이 40번을 넘어도 막히지 않는다', async () => {
-    const sv = await start();
+    const sv = await start({ studentAuthFailMax: 30 });
     const exam = await makeExam();
     // 명단 3명뿐이므로 응시 3개를 라운드마다 연결했다 닫는다(주체당 한도 3을 넘지 않는다).
     const attempts = await Promise.all([0, 1, 2].map((i) => makeAttempt(exam.id, i)));
@@ -223,7 +228,7 @@ describe('프록시 뒤 클라이언트 IP(trustProxy)', () => {
   const fail = (sv: Server, xff: string, i: number) => connectError(open(sv, { auth: { sessionToken: `bad-${xff}-${i}` }, headers: { 'X-Forwarded-For': xff } }));
 
   it('(a) trustProxy 1: 오른쪽 값이 다른 클라이언트는 한도가 따로 계산된다', async () => {
-    const sv = await start({ trustProxy: 1 });
+    const sv = await start({ trustProxy: 1, studentAuthFailMax: 30 });
     for (let i = 0; i < 30; i++) await fail(sv, '198.51.100.1', i);
     const spy = vi.spyOn(studentSession, 'findAttemptByToken');
     await fail(sv, '198.51.100.2', 0);
@@ -231,7 +236,7 @@ describe('프록시 뒤 클라이언트 IP(trustProxy)', () => {
   }, 60_000);
 
   it('(b) 같은 오른쪽 값에서는 31번째가 DB 없이 거절된다', async () => {
-    const sv = await start({ trustProxy: 1 });
+    const sv = await start({ trustProxy: 1, studentAuthFailMax: 30 });
     const spy = vi.spyOn(studentSession, 'findAttemptByToken');
     for (let i = 0; i < 30; i++) await fail(sv, '198.51.100.1', i);
     await fail(sv, '198.51.100.1', 31);
@@ -239,7 +244,7 @@ describe('프록시 뒤 클라이언트 IP(trustProxy)', () => {
   }, 60_000);
 
   it('(c) 왼쪽에 위조해 끼운 값은 무시된다', async () => {
-    const sv = await start({ trustProxy: 1 });
+    const sv = await start({ trustProxy: 1, studentAuthFailMax: 30 });
     const spy = vi.spyOn(studentSession, 'findAttemptByToken');
     for (let i = 0; i < 30; i++) await fail(sv, `10.9.9.${i}, 198.51.100.1`, i);
     await fail(sv, '203.0.113.7, 198.51.100.1', 31);
@@ -247,7 +252,7 @@ describe('프록시 뒤 클라이언트 IP(trustProxy)', () => {
   }, 60_000);
 
   it('(d) trustProxy 미지정이면 X-Forwarded-For를 무시한다', async () => {
-    const sv = await start();
+    const sv = await start({ studentAuthFailMax: 30 });
     const spy = vi.spyOn(studentSession, 'findAttemptByToken');
     for (let i = 0; i < 30; i++) await fail(sv, `198.51.100.${i}`, i);
     await fail(sv, '198.51.100.200', 31);
@@ -255,7 +260,7 @@ describe('프록시 뒤 클라이언트 IP(trustProxy)', () => {
   }, 60_000);
 
   it('trustProxy 1인데 헤더가 없으면 소켓 주소로 대체한다', async () => {
-    const sv = await start({ trustProxy: 1 });
+    const sv = await start({ trustProxy: 1, studentAuthFailMax: 30 });
     const spy = vi.spyOn(studentSession, 'findAttemptByToken');
     for (let i = 0; i < 30; i++) await connectError(open(sv, { auth: { sessionToken: `bad-${i}` } }));
     await connectError(open(sv, { auth: { sessionToken: 'bad-31' } }));
@@ -380,5 +385,126 @@ describe('기존 방어 회귀', () => {
     await connected(s);
     const res = (await s.timeout(3000).emitWithAck(EV.ANSWER_SAVE, {})) as { ok: boolean };
     expect(typeof res.ok).toBe('boolean');
+  });
+});
+
+/** 원시 웹소켓(Engine.IO v4)으로 연결해 Socket.IO CONNECT 패킷(`40{auth}`)을 직접 보낸다. */
+const rawSockets: WebSocket[] = [];
+afterEach(() => {
+  for (const w of rawSockets.splice(0)) w.close();
+});
+async function rawConnect(sv: Server): Promise<{ ws: WebSocket; frames: string[] }> {
+  const ws = new WebSocket(`${sv.url.replace('http', 'ws')}/socket.io/?EIO=4&transport=websocket`);
+  rawSockets.push(ws);
+  const frames: string[] = [];
+  ws.addEventListener('message', (e) => frames.push(String(e.data)));
+  await new Promise<void>((resolve, reject) => {
+    ws.addEventListener('open', () => resolve());
+    ws.addEventListener('error', () => reject(new Error('ws error')));
+  });
+  return { ws, frames };
+}
+async function until(cond: () => boolean, ms = 15_000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > end) throw new Error('timeout in until');
+    await sleep(20);
+  }
+}
+
+describe('인증 버스트 상한(경쟁 조건)', () => {
+  it('연결 하나에서 CONNECT를 100번 한꺼번에 보내도 DB 조회는 한도 이하다', async () => {
+    const sv = await start({ studentAuthFailMax: 10 });
+    const spy = vi.spyOn(studentSession, 'findAttemptByToken');
+    const { ws, frames } = await rawConnect(sv);
+    for (let i = 0; i < 100; i++) ws.send(`40{"sessionToken":"bad${i}"}`);
+    await until(() => frames.filter((f) => f.startsWith('44')).length >= 100);
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(10);
+    expect(frames.filter((f) => f.startsWith('44')).every((f) => f.includes('UNAUTHORIZED'))).toBe(true);
+  });
+
+  it('같은 IP에서 서로 다른 연결 50개가 동시에 잘못된 토큰으로 붙어도 DB 조회는 한도 이하다', async () => {
+    const sv = await start({ studentAuthFailMax: 10 });
+    const spy = vi.spyOn(studentSession, 'findAttemptByToken');
+    const errs = await Promise.all(Array.from({ length: 50 }, (_, i) => connectError(open(sv, { auth: { sessionToken: `bad-${i}` } }))));
+    expect(errs.every((e) => e.message === 'UNAUTHORIZED')).toBe(true);
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(10);
+  });
+
+  it('정상 학생 20명이 동시에 올바른 토큰으로 입장해도 거절되지 않고, 진행 중 카운트는 반환된다', async () => {
+    const sv = await start();
+    const exam = await makeExam();
+    const extra = Array.from({ length: 20 }, (_, i) => ({ examId: exam.id, studentNo: `2026${String(100 + i)}`, name: `추가${i}` }));
+    await prisma.rosterEntry.createMany({ data: extra });
+    const attempts = await Promise.all(Array.from({ length: 20 }, (_, i) => makeAttempt(exam.id, i)));
+    const list = attempts.map((a) => open(sv, { auth: { sessionToken: a.token } }));
+    await Promise.all(list.map(connected));
+    expect(list.every((s) => s.connected)).toBe(true);
+    // 진행 중 카운트가 반환되었다면 그 뒤 잘못된 토큰도 DB까지 간다(= 거절 판단에 남은 카운트가 없다)
+    const spy = vi.spyOn(studentSession, 'findAttemptByToken');
+    await connectError(open(sv, { auth: { sessionToken: 'bad' } }));
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('학생 토큰 실패와 교수자 쿠키 실패 한도 분리', () => {
+  it('교수자 쿠키 실패 30건을 채워도 정상 학생 토큰 연결은 성공한다', async () => {
+    const sv = await start();
+    const exam = await makeExam();
+    const { token } = await makeAttempt(exam.id);
+    for (let i = 0; i < 30; i++) await connectError(open(sv));
+    await connectError(open(sv)); // 31번째 교수자 실패는 거절 상태
+    const s = open(sv, { auth: { sessionToken: token } });
+    await connected(s);
+    expect(s.connected).toBe(true);
+  });
+
+  it('학생 토큰 실패 한도를 채워도 정상 교수자 쿠키 연결은 성공한다', async () => {
+    const sv = await start({ studentAuthFailMax: 5 });
+    const staff = await makeStaff();
+    for (let i = 0; i < 5; i++) await connectError(open(sv, { auth: { sessionToken: `bad-${i}` } }));
+    const spy = vi.spyOn(studentSession, 'findAttemptByToken');
+    await connectError(open(sv, { auth: { sessionToken: 'bad-6' } }));
+    expect(spy).not.toHaveBeenCalled();
+    const s = open(sv, { cookie: staffCookie(staff.id) });
+    await connected(s);
+    expect(s.connected).toBe(true);
+  });
+
+  it('학생 토큰 실패 기본 한도는 200회: 201번째는 DB 호출 없이 거절된다', async () => {
+    const sv = await start();
+    const spy = vi.spyOn(studentSession, 'findAttemptByToken');
+    for (let batch = 0; batch < 10; batch++) {
+      await Promise.all(Array.from({ length: 20 }, (_, i) => connectError(open(sv, { auth: { sessionToken: `bad-${batch}-${i}` } }))));
+    }
+    expect(spy).toHaveBeenCalledTimes(200);
+    const err = await connectError(open(sv, { auth: { sessionToken: 'bad-201' } }));
+    expect(err.message).toBe('UNAUTHORIZED');
+    expect(spy).toHaveBeenCalledTimes(200);
+  }, 120_000);
+});
+
+describe('stripIpPort', () => {
+  it.each([
+    ['1.2.3.4:5678', '1.2.3.4'],
+    ['1.2.3.4', '1.2.3.4'],
+    ['[2001:db8::1]:443', '2001:db8::1'],
+    ['[2001:db8::1]', '2001:db8::1'],
+    ['2001:db8::1', '2001:db8::1'],
+    ['::ffff:1.2.3.4', '::ffff:1.2.3.4'],
+    ['garbage:xyz', 'garbage:xyz'],
+    ['', ''],
+  ])('%s -> %s', (input, expected) => {
+    expect(stripIpPort(input)).toBe(expected);
+  });
+
+  it('XFF에 포트가 붙어 있어도 같은 클라이언트는 같은 키로 집계된다', async () => {
+    const sv = await start({ trustProxy: 1, studentAuthFailMax: 5 });
+    const spy = vi.spyOn(studentSession, 'findAttemptByToken');
+    for (let i = 0; i < 5; i++) {
+      await connectError(open(sv, { auth: { sessionToken: `bad-${i}` }, headers: { 'X-Forwarded-For': `198.51.100.1:${40000 + i}` } }));
+    }
+    await connectError(open(sv, { auth: { sessionToken: 'bad-x' }, headers: { 'X-Forwarded-For': '198.51.100.1:55555' } }));
+    expect(spy).toHaveBeenCalledTimes(5);
   });
 });
