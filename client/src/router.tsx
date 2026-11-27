@@ -1,7 +1,13 @@
 import { createBrowserRouter, type RouteObject } from 'react-router-dom';
 import { t } from './copy/ko';
+import { ExamEditPage } from './pages/staff/ExamEditPage';
+import { ExamListPage } from './pages/staff/ExamListPage';
+import { ExamRunPage } from './pages/staff/ExamRunPage';
+import { LoginPage } from './pages/staff/LoginPage';
+import { ResultsPage } from './pages/staff/ResultsPage';
+import { SurveyPage } from './pages/staff/SurveyPage';
 
-// 임시 화면: 제목만 보인다. 실제 화면은 Task 14·15에서 채운다.
+// 임시 화면: 제목만 보인다. 교수자 화면은 Task 14에서 채웠고, 학생 화면은 Task 15에서 채운다.
 function Placeholder({ title, body }: { title: string; body?: string }) {
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: '2rem' }}>
@@ -12,12 +18,12 @@ function Placeholder({ title, body }: { title: string; body?: string }) {
 }
 
 export const routes: RouteObject[] = [
-  { path: '/staff/login', element: <Placeholder title={t.pages.staffLogin} /> },
-  { path: '/staff/exams', element: <Placeholder title={t.pages.staffExams} /> },
-  { path: '/staff/exams/:id/edit', element: <Placeholder title={t.pages.staffEdit} /> },
-  { path: '/staff/exams/:id/run', element: <Placeholder title={t.pages.staffRun} /> },
-  { path: '/staff/exams/:id/results', element: <Placeholder title={t.pages.staffResults} /> },
-  { path: '/staff/exams/:id/survey', element: <Placeholder title={t.pages.staffSurvey} /> },
+  { path: '/staff/login', element: <LoginPage /> },
+  { path: '/staff/exams', element: <ExamListPage /> },
+  { path: '/staff/exams/:id/edit', element: <ExamEditPage /> },
+  { path: '/staff/exams/:id/run', element: <ExamRunPage /> },
+  { path: '/staff/exams/:id/results', element: <ResultsPage /> },
+  { path: '/staff/exams/:id/survey', element: <SurveyPage /> },
   { path: '/e/:examCode', element: <Placeholder title={t.pages.studentExam} /> },
   {
     path: '*',
