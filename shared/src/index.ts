@@ -123,3 +123,56 @@ export const ERROR_CODES = [
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
+
+/** 신호 자체의 위험도 (SPEC 5.4). NONE 없음 */
+export type SignalSeverity = 'INFO' | 'WARN' | 'ALERT';
+
+/** 학생 클라이언트가 보내는 신호 종류 (SPEC 5.1) */
+export type ClientSignalType = 'LEAVE' | 'LEAVE_START' | 'FULLSCREEN_EXIT' | 'PASTE' | 'DROP';
+
+/** 이탈 3초 이상이면 위반 (SPEC 5.4) */
+export const LEAVE_VIOLATION_MS = 3000;
+/** 하트비트 공백 15초면 HEARTBEAT_GAP (SPEC 5.2) */
+export const HEARTBEAT_GAP_MS = 15000;
+/** 소켓 끊김 후 재연결 유예 (SPEC 5.1) */
+export const DISCONNECT_GRACE_MS = 10000;
+/** 네트워크 장애 의심 판정 윈도 (SPEC 5.5) */
+export const NETWORK_INCIDENT_WINDOW_MS = 10000;
+/** 네트워크 장애 의심 최소 인원 (SPEC 5.5) */
+export const NETWORK_INCIDENT_MIN_COUNT = 3;
+/** 네트워크 장애 의심 응시 인원 비율 (SPEC 5.5) */
+export const NETWORK_INCIDENT_RATIO = 0.3;
+
+/** 신호 DTO (SPEC 7.2). 시각은 epoch ms */
+export type SignalDto = {
+  id: string;
+  type: SignalType;
+  severity: SignalSeverity;
+  clientAt: number | null;
+  receivedAt: number;
+  durationMs: number | null;
+  questionId: string | null;
+  meta: Record<string, unknown>;
+};
+
+/** 감독 대시보드 응시 요약 (SPEC 7.2) */
+export type AttemptSummary = {
+  attemptId: string | null;
+  studentNo: string;
+  name: string;
+  /** null = 미입장 */
+  state: AttemptState | null;
+  ready: boolean;
+  consentDeclined: boolean;
+  violationCount: number;
+  unackedSeverity: Severity;
+  /** PAUSED이고 마지막 중지가 AUTO_PAUSE */
+  locked: boolean;
+  connected: boolean;
+  /** LEAVE_START 후 LEAVE 전 */
+  away: boolean;
+  extraSeconds: number;
+  deadline: number | null;
+  pausedAt: number | null;
+  lastSignal: { type: SignalType; severity: SignalSeverity; receivedAt: number } | null;
+};
