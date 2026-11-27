@@ -31,7 +31,10 @@ export type SortBy = 'STUDENT_NO' | 'NEEDS_ATTENTION';
 const SEVERITY_RANK: Record<Severity, number> = { NONE: 0, INFO: 1, WARN: 2, ALERT: 3 };
 const isKind = (k: unknown): k is ApprovalKind => k === 'LATE' || k === 'DUPLICATE';
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
-const isSummary = (v: unknown): v is AttemptSummary => isRecord(v) && typeof v.studentNo === 'string' && typeof v.name === 'string';
+const KNOWN_STATES = new Set(['WAITING', 'PENDING_APPROVAL', 'ACTIVE', 'PAUSED', 'SUBMITTED', 'TERMINATED', 'REJECTED']);
+// state가 null(미입장)이거나 아는 값이 아니면 카드로 만들지 않는다(배지 문구가 비는 것을 막는다)
+const isSummary = (v: unknown): v is AttemptSummary =>
+  isRecord(v) && typeof v.studentNo === 'string' && typeof v.name === 'string' && (v.state === null || (typeof v.state === 'string' && KNOWN_STATES.has(v.state)));
 
 function parseIncident(v: unknown): NetworkIncident | null {
   if (!isRecord(v) || typeof v.count !== 'number' || !Array.isArray(v.attemptIds)) return null;
@@ -76,6 +79,7 @@ export function useDashboard(examId: string) {
   const [ready, setReady] = useState<number | null>(null);
   const [total, setTotal] = useState<number | null>(null);
   const [socketDown, setSocketDown] = useState(false);
+  const [joinFailed, setJoinFailed] = useState(false);
   const [sortBy, setSortBy] = useState<SortBy>('STUDENT_NO');
   const [query, setQuery] = useState('');
 
@@ -84,7 +88,7 @@ export function useDashboard(examId: string) {
     const join = () => {
       setSocketDown(false);
       // 연결(재연결 포함)마다 스냅샷을 다시 요청한다. 결과는 dashboard:snapshot 이벤트로 온다.
-      socket.emit(EV.DASHBOARD_JOIN, { examId }, () => undefined);
+      socket.emit(EV.DASHBOARD_JOIN, { examId }, (res: unknown) => setJoinFailed(isRecord(res) && res.ok === false));
     };
     socket.on('connect', join);
     socket.on('disconnect', () => setSocketDown(true));
@@ -165,7 +169,7 @@ export function useDashboard(examId: string) {
     [approvals, all],
   );
 
-  return { exam, cards, allCards: all, total: total ?? exam?.total ?? null, ready, signals, pendingApprovals, networkIncident, sortBy, setSortBy, query, setQuery, socketDown, removeApproval, hasSnapshot: exam !== null };
+  return { exam, cards, allCards: all, total: total ?? exam?.total ?? null, ready, signals, pendingApprovals, networkIncident, sortBy, setSortBy, query, setQuery, socketDown, joinFailed, removeApproval, hasSnapshot: exam !== null };
 }
 
 export type Dashboard = ReturnType<typeof useDashboard>;

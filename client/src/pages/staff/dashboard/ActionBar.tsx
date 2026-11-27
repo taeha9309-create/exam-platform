@@ -10,7 +10,7 @@ const parseMinutes = (s: string): number | null => (/^\d+$/.test(s.trim()) && Nu
 const pausedMinutes = (pausedAt: number | null, now: number) => (pausedAt === null ? 1 : Math.max(1, Math.ceil((now - pausedAt) / 60_000)));
 
 /** 선택한 학생 한 명에게 하는 조치(F-16). 사유가 비면 조치 버튼은 비활성이다(ACK는 카드의 [확인]). */
-export function ActionBar({ card, busy, onAct }: { card: AttemptSummary; busy: boolean; onAct: (body: ProctorActionBody) => Promise<void> }) {
+export function ActionBar({ card, busy, onAct }: { card: AttemptSummary; busy: boolean; onAct: (body: ProctorActionBody) => Promise<boolean> }) {
   const [reason, setReason] = useState('');
   const [minutes, setMinutes] = useState('10');
   const [confirmEnd, setConfirmEnd] = useState(false);
@@ -35,6 +35,10 @@ export function ActionBar({ card, busy, onAct }: { card: AttemptSummary; busy: b
   const active = card.state === 'ACTIVE';
   const paused = card.state === 'PAUSED';
   const off = busy || noReason;
+  /** 조치가 성공하면 사유 입력란을 비운다(실패하면 유지) */
+  const send = async (body: ProctorActionBody) => {
+    if (await onAct(body)) setReason('');
+  };
 
   return (
     <section aria-label={t.staff.dash.actionsFor(card.name, card.studentNo)} style={{ border: '1px solid #bbb', borderRadius: 8, padding: '0.75rem', margin: '0.75rem 0' }}>
@@ -53,23 +57,23 @@ export function ActionBar({ card, busy, onAct }: { card: AttemptSummary; busy: b
       {noReason ? <p style={{ margin: '0.25rem 0', color: '#555' }}>{t.staff.dash.reasonRequired}</p> : null}
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
         {active ? (
-          <button type="button" disabled={off} onClick={() => void onAct({ type: 'PAUSE', reason: trimmed })}>
+          <button type="button" disabled={off} onClick={() => void send({ type: 'PAUSE', reason: trimmed })}>
             {t.staff.dash.pause}
           </button>
         ) : null}
         {paused ? (
           <>
-            <button type="button" disabled={off} onClick={() => void onAct({ type: 'RESUME', reason: trimmed })}>
+            <button type="button" disabled={off} onClick={() => void send({ type: 'RESUME', reason: trimmed })}>
               {t.staff.dash.resume}
             </button>
             {card.locked ? (
-              <button type="button" disabled={off} onClick={() => void onAct({ type: 'RESUME', reason: trimmed, payload: { addPausedTime: true } })}>
+              <button type="button" disabled={off} onClick={() => void send({ type: 'RESUME', reason: trimmed, payload: { addPausedTime: true } })}>
                 {t.staff.dash.resumeAddTime(pausedMinutes(card.pausedAt, now))}
               </button>
             ) : null}
           </>
         ) : null}
-        <button type="button" disabled={off} onClick={() => void onAct({ type: 'WARN', reason: trimmed })}>
+        <button type="button" disabled={off} onClick={() => void send({ type: 'WARN', reason: trimmed })}>
           {t.staff.dash.warn}
         </button>
         <button type="button" style={{ color: '#b00020' }} disabled={off} onClick={() => setConfirmEnd(true)}>
@@ -79,7 +83,7 @@ export function ActionBar({ card, busy, onAct }: { card: AttemptSummary; busy: b
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '0.5rem' }}>
         <label htmlFor="proctor-minutes">{t.staff.dash.minutes}</label>
         <input id="proctor-minutes" inputMode="numeric" value={minutes} style={{ width: '4rem' }} aria-invalid={mins === null} onChange={(e) => setMinutes(e.target.value)} />
-        <button type="button" disabled={off || mins === null} onClick={() => mins !== null && void onAct({ type: 'ADD_TIME', reason: trimmed, payload: { minutes: mins } })}>
+        <button type="button" disabled={off || mins === null} onClick={() => mins !== null && void send({ type: 'ADD_TIME', reason: trimmed, payload: { minutes: mins } })}>
           {t.staff.dash.addTime}
         </button>
         {mins === null ? <span role="note">{t.staff.dash.minutesInvalid}</span> : null}
@@ -91,7 +95,7 @@ export function ActionBar({ card, busy, onAct }: { card: AttemptSummary; busy: b
           busy={busy}
           onCancel={() => setConfirmEnd(false)}
           onConfirm={() => {
-            void onAct({ type: 'TERMINATE', reason: trimmed }).finally(() => setConfirmEnd(false));
+            void send({ type: 'TERMINATE', reason: trimmed }).finally(() => setConfirmEnd(false));
           }}
         />
       ) : null}

@@ -189,7 +189,20 @@ describe('운영 화면', () => {
     emitServer('approval:pending', { attemptId: 'att-1', kind: 'LATE' });
     fireEvent.click(within(screen.getByText(t.staff.run.kindLate).closest('li')!).getByRole('button', { name: t.staff.run.approve }));
     await waitFor(() => expect(screen.queryByText(t.staff.run.kindLate)).toBeNull());
-    expect((await screen.findByRole('alert')).textContent).toBe(t.errors.INVALID_STATE);
+    expect((await screen.findByRole('alert')).textContent).toBe(t.staff.dash.resolvedGone);
+  });
+
+  it('승인 409 BUSY(일시적 충돌)는 항목을 남기고 다시 시도 안내만 보이며, 다시 눌러 성공하면 사라진다', async () => {
+    vi.mocked(staffApi.resolveApproval).mockRejectedValueOnce(new ApiError(409, 'BUSY')).mockResolvedValueOnce({ attempt: { id: 'att-1', state: 'WAITING' } });
+    renderPage(makeExam({ status: 'RUNNING', questions: [Q], rosterCount: 5, endsAt: new Date(Date.now() + 600_000).toISOString() }));
+    await screen.findByRole('button', { name: t.staff.run.end });
+    emitServer('approval:pending', { attemptId: 'att-1', kind: 'LATE' });
+    const approve = () => within(screen.getByText(t.staff.run.kindLate).closest('li')!).getByRole('button', { name: t.staff.run.approve });
+    fireEvent.click(approve());
+    expect((await screen.findByRole('alert')).textContent).toBe(t.errors.BUSY);
+    expect(screen.getByText(t.staff.run.kindLate)).toBeTruthy();
+    fireEvent.click(approve());
+    await waitFor(() => expect(screen.queryByText(t.staff.run.kindLate)).toBeNull());
   });
 
   it('요청 중에는 버튼이 비활성이고, 409 BUSY는 다시 시도 안내 문구로 표시된다', async () => {

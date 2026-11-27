@@ -106,8 +106,12 @@ export function ExamRunPage() {
         await resolveApproval(a.attemptId, type, reason);
         dash.removeApproval(a.attemptId);
       } catch (err) {
-        // 다른 감독관이 이미 처리했으면(409) 목록에서 지운다
-        if (err instanceof ApiError && err.status === 409) dash.removeApproval(a.attemptId);
+        // 이미 처리됨(INVALID_STATE)이면 목록에서 지운다. BUSY는 일시적 충돌이라 항목을 남기고 다시 시도 안내만 보인다.
+        if (err instanceof ApiError && err.status === 409 && err.code === 'INVALID_STATE') {
+          dash.removeApproval(a.attemptId);
+          setError(t.staff.dash.resolvedGone);
+          return;
+        }
         throw err;
       }
     });

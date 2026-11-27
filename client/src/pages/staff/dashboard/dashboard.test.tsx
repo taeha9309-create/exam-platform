@@ -266,7 +266,9 @@ describe('감독 대시보드', () => {
     await waitFor(() =>
       expect(staffApi.postAction).toHaveBeenCalledWith('att-1', { type: 'RESUME', reason: t.staff.dash.quickOk, payload: { addPausedTime: true } }),
     );
-    // 일반 [재개]는 payload 없이
+    // 성공하면 사유가 비워지므로 다시 채운다. 일반 [재개]는 payload 없이
+    await waitFor(() => expect((screen.getByLabelText(t.staff.dash.reasonLabel) as HTMLInputElement).value).toBe(''));
+    fireEvent.click(screen.getByRole('button', { name: t.staff.dash.quickOk }));
     fireEvent.click(screen.getByRole('button', { name: t.staff.dash.resume }));
     await waitFor(() => expect(staffApi.postAction).toHaveBeenCalledWith('att-1', { type: 'RESUME', reason: t.staff.dash.quickOk }));
   });
@@ -308,6 +310,60 @@ describe('감독 대시보드', () => {
     vi.mocked(staffApi.postAction).mockRejectedValue(new ApiError(409, 'INVALID_STATE'));
     fireEvent.click(within(cardOf('학생01')).getByRole('button', { name: t.staff.dash.ack }));
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(t.errors.INVALID_STATE));
+  });
+
+  it('시간 추가가 EXTRA_TIME_LIMIT(409)이면 고정 안내 문구가 보인다', async () => {
+    vi.mocked(staffApi.postAction).mockRejectedValue(new ApiError(409, 'EXTRA_TIME_LIMIT'));
+    renderDash([summary(1)]);
+    fireEvent.click(within(cardOf('학생01')).getByRole('button', { name: t.staff.dash.select }));
+    fireEvent.change(screen.getByLabelText(t.staff.dash.reasonLabel), { target: { value: '본인 요청' } });
+    fireEvent.click(screen.getByRole('button', { name: t.staff.dash.addTime }));
+    expect((await screen.findByRole('alert')).textContent).toBe(t.errors.EXTRA_TIME_LIMIT);
+    expect(t.errors.EXTRA_TIME_LIMIT).toContain('24시간');
+  });
+
+  it('선택한 학생이 제출·종료 상태가 되면 조치 막대가 닫힌다', () => {
+    renderDash([summary(1)]);
+    fireEvent.click(within(cardOf('학생01')).getByRole('button', { name: t.staff.dash.select }));
+    expect(screen.getByRole('button', { name: t.staff.dash.pause })).toBeTruthy();
+    emitServer('attempt:updated', summary(1, { state: 'SUBMITTED' }));
+    expect(screen.queryByRole('button', { name: t.staff.dash.pause })).toBeNull();
+    expect(screen.queryByLabelText(t.staff.dash.reasonLabel)).toBeNull();
+    expect(screen.getByText(t.staff.dash.noTarget)).toBeTruthy();
+  });
+
+  it('조치가 성공하면 사유 입력란이 비워지고, 실패하면 유지된다', async () => {
+    renderDash([summary(1)]);
+    fireEvent.click(within(cardOf('학생01')).getByRole('button', { name: t.staff.dash.select }));
+    const box = () => screen.getByLabelText(t.staff.dash.reasonLabel) as HTMLInputElement;
+    fireEvent.change(box(), { target: { value: '본인 요청' } });
+    vi.mocked(staffApi.postAction).mockRejectedValueOnce(new ApiError(409, 'BUSY'));
+    fireEvent.click(screen.getByRole('button', { name: t.staff.dash.pause }));
+    await screen.findByRole('alert');
+    expect(box().value).toBe('본인 요청');
+    fireEvent.click(screen.getByRole('button', { name: t.staff.dash.pause }));
+    await waitFor(() => expect(box().value).toBe(''));
+  });
+
+  it('알 수 없는 state의 항목은 무시하고 나머지 카드는 정상 표시한다', () => {
+    renderDash([summary(1), { ...summary(2), state: 'WEIRD' as never }]);
+    expect(order()).toEqual(['20240001']);
+    expect(document.body.textContent).not.toContain('undefined');
+  });
+
+  it('dashboard:join ack가 ok:false이면 안내 문구를 보이고, ok:true이면 보이지 않는다', () => {
+    render(
+      <MemoryRouter>
+        <Harness />
+      </MemoryRouter>,
+    );
+    const ack = () => fakeSocket.emit.mock.calls.filter((c) => c[0] === 'dashboard:join').at(-1)![2] as (r: unknown) => void;
+    act(() => handlers.get('connect')!());
+    act(() => ack()({ ok: false, code: 'FORBIDDEN' }));
+    expect(screen.getByText(t.staff.dash.joinFailed)).toBeTruthy();
+    act(() => handlers.get('connect')!());
+    act(() => ack()({ ok: true, code: 'OK' }));
+    expect(screen.queryByText(t.staff.dash.joinFailed)).toBeNull();
   });
 
   it('승인 요청은 스냅샷의 학번·이름과 함께 보관되고 이벤트로 추가·제거된다', () => {

@@ -201,6 +201,7 @@ export const t = {
       terminateConfirmTitle: '이 학생의 응시를 종료할까요?',
       terminateConfirmBody: '종료하면 지금까지의 답안으로 응시가 끝나며 되돌릴 수 없습니다.',
       resolvedGone: '이미 처리된 요청입니다. 목록에서 지웠습니다.',
+      joinFailed: '대시보드 연결을 완료하지 못했습니다. 화면을 새로고침하거나 다시 로그인해 주세요.',
       approvalReasonHint: '사유를 확인하고 필요하면 고쳐 쓴 뒤 눌러 주세요.',
       /** 신호 요약: 관찰된 사실만 적는다 */
       signalSummary: (type: string, durationMs: number | null, meta: Record<string, unknown> | null): string => {
@@ -421,6 +422,7 @@ export const t = {
     APPROVAL_ALREADY_PENDING: '이미 승인 대기 중인 접속이 있습니다. 감독관에게 알려 주세요.',
     ATTEMPT_FINISHED: '이미 종료된 응시입니다.',
     INVALID_STATE: '현재 상태에서는 처리할 수 없는 요청입니다. 화면을 새로고침해 주세요.',
+    EXTRA_TIME_LIMIT: '추가 시간이 너무 많아 더 늘릴 수 없습니다(한 응시당 24시간까지).',
     NOT_ESSAY: '서술형 문항에만 점수와 피드백을 입력할 수 있습니다.',
     NOT_SUBMITTED: '제출이 끝난 응시에서만 할 수 있는 동작입니다.',
     NOT_ENDED: '시험이 끝난 뒤에 설문 결과를 볼 수 있습니다.',

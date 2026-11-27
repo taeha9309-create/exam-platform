@@ -24,18 +24,24 @@ export function DashboardCards({ dash }: { dash: Dashboard }) {
   const [error, setError] = useState<string | null>(null);
   const [selectedNo, setSelectedNo] = useState<string | null>(null);
   const { cards, allCards, signals } = dash;
-  const selected = selectedNo === null ? null : (allCards.find((c) => c.studentNo === selectedNo) ?? null);
+  const found = selectedNo === null ? null : (allCards.find((c) => c.studentNo === selectedNo) ?? null);
+  // 제출·종료 등으로 조치할 수 없는 상태가 되면 조치 막대를 닫는다
+  const selected = found && (found.state === 'ACTIVE' || found.state === 'PAUSED') ? found : null;
   const disabled = busy !== null;
 
-  const act = (attemptId: string, key: string, body: ProctorActionBody): Promise<void> => {
+  /** 성공하면 true. 실패는 오류 문구로 보이고 false(입력 유지용). */
+  const act = async (attemptId: string, key: string, body: ProctorActionBody): Promise<boolean> => {
     setError(null);
-    return run(key, async () => {
+    let ok = false;
+    await run(key, async () => {
       try {
         await postAction(attemptId, body);
+        ok = true;
       } catch (err) {
-        setError(toText(err)); // 409 BUSY·INVALID_STATE 포함
+        setError(toText(err)); // 409 BUSY·INVALID_STATE·EXTRA_TIME_LIMIT 포함
       }
     });
+    return ok;
   };
 
   return (
@@ -53,6 +59,7 @@ export function DashboardCards({ dash }: { dash: Dashboard }) {
           </select>
         </label>
       </div>
+      {dash.joinFailed ? <p role="status">{t.staff.dash.joinFailed}</p> : null}
       <ErrorAlert message={error} />
       {selected && selected.attemptId !== null ? (
         <ActionBar card={selected} busy={disabled} onAct={(body) => act(selected.attemptId!, `action-${body.type}`, body)} />
