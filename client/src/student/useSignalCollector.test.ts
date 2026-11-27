@@ -296,6 +296,68 @@ describe('붙여넣기·드롭', () => {
   });
 });
 
+describe('백오프와 durationMs 상한', () => {
+  it('백오프 중에는 하트비트 틱·새 신호가 drain을 다시 시작하지 않고, 타이머와 connect만 재시도한다', async () => {
+    const { sent, handlers } = setup({ heartbeatEnabled: true }, true, false);
+    const ta = makeTextarea();
+    firePaste(ta, 'a'); // seq 1
+    await tick(0);
+    expect(signals(sent)).toHaveLength(1);
+    act(() => sent[0]!.ack!(null, { ok: false, code: 'RATE' })); // t=0, 백오프 1초
+    await tick(1000); // t=1000: 타이머 재시도
+    expect(signals(sent)).toHaveLength(2);
+    act(() => sent[1]!.ack!(null, { ok: false, code: 'RATE' })); // 백오프 2초
+    await tick(2000); // t=3000
+    expect(signals(sent)).toHaveLength(3);
+    act(() => sent[2]!.ack!(null, { ok: false, code: 'BUSY' })); // 백오프 4초 → t=7000에 재시도
+    await tick(2000); // t=5000: 하트비트 틱이 지났다
+    firePaste(ta, 'bb'); // 새 신호도 즉시 보내지 않는다
+    await tick(1000); // t=6000
+    expect(signals(sent)).toHaveLength(3);
+    await tick(1000); // t=7000: 타이머
+    expect(signals(sent)).toHaveLength(4);
+    expect(signals(sent)[3]!.payload.seq).toBe(1); // 같은 건부터
+    act(() => sent[sent.length - 1]!.ack!(null, { ok: false, code: 'RATE' })); // 백오프 8초
+    await tick(100);
+    const before = signals(sent).length;
+    act(() => handlers.get('connect')!()); // 재연결은 백오프를 건너뛰고 즉시
+    await tick(0);
+    expect(signals(sent).length).toBe(before + 1);
+  });
+
+  it('성공(ack ok)하면 백오프가 1초로 초기화된다', async () => {
+    const { sent } = setup({ heartbeatEnabled: false }, true, false);
+    const ta = makeTextarea();
+    firePaste(ta, 'a');
+    await tick(0);
+    act(() => sent[0]!.ack!(null, { ok: false, code: 'RATE' }));
+    await tick(1000);
+    act(() => sent[1]!.ack!(null, { ok: false, code: 'RATE' })); // 2초 단계
+    await tick(2000);
+    act(() => sent[2]!.ack!(null, { ok: true })); // 성공: 초기화
+    await tick(0);
+    firePaste(ta, 'bb');
+    await tick(0);
+    const n = sent.length;
+    act(() => sent[n - 1]!.ack!(null, { ok: false, code: 'RATE' }));
+    await tick(999);
+    expect(sent).toHaveLength(n);
+    await tick(1); // 4초가 아니라 1초
+    expect(sent).toHaveLength(n + 1);
+  });
+
+  it('2시간 이탈 후 복귀해도 durationMs는 3600000으로 잘려 LEAVE가 전송된다', async () => {
+    const { sent } = setup({ heartbeatEnabled: false });
+    goAway('hidden');
+    await tick(2 * 60 * 60 * 1000);
+    comeBack();
+    await tick(0);
+    const leave = signals(sent, 'LEAVE');
+    expect(leave).toHaveLength(1);
+    expect(leave[0]!.payload.durationMs).toBe(3_600_000);
+  });
+});
+
 describe('오프라인 큐', () => {
   it('(e) 끊긴 동안 신호 3건을 쌓고 재연결하면 seq 순서대로 한 건씩, ack 뒤에만 제거한다', async () => {
     const { sent, socket, handlers } = setup({ heartbeatEnabled: false }, false, false);

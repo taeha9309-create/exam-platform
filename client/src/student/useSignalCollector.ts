@@ -6,6 +6,8 @@ import { createSignalQueue, type ClientSignalType, type QueueMsg, type SendResul
 // Task 1 병합 후 shared의 HEARTBEAT_MS로 교체 가능.
 export const HEARTBEAT_MS = 5000;
 const FOCUS_POLL_MS = 1000;
+/** 서버는 이 값을 넘는 durationMs를 INVALID로 거부한다. 절전 복귀 등에서 신호가 사라지지 않도록 자른다. */
+const MAX_DURATION_MS = 3_600_000;
 const ACK_TIMEOUT_MS = 5000;
 const BACKOFF_BASE_MS = 1000;
 const BACKOFF_MAX_MS = 30_000;
@@ -85,12 +87,21 @@ export function useSignalCollector(options: SignalCollectorOptions): { awayNow: 
       return new Promise<SendResult>((resolve) => {
         s.timeout(ACK_TIMEOUT_MS).emit('signal', { seq, type, clientAt, durationMs, questionId, meta }, (err, res) => {
           if (err || !res) resolve({ ok: false });
-          else resolve({ ok: !!res.ok, code: res.code });
+          else {
+            if (res.ok) backoffN = 0; // 성공하면 백오프를 처음(1초)으로
+            resolve({ ok: !!res.ok, code: res.code });
+          }
         });
       });
     };
 
+    // 일반 호출(하트비트 틱·새 신호·시작 시): 백오프 타이머가 걸려 있으면 다시 시작하지 않는다.
+    // 백오프 중 drain을 시작하는 것은 타이머 콜백과 소켓 connect뿐이다(서버 RATE·BUSY 거절을 계속 두드리지 않기 위함).
     const drain = () => {
+      if (retryTimer !== undefined) return;
+      drainNow();
+    };
+    const drainNow = () => {
       const s = opts.current.socket;
       if (!alive || !s || !s.connected) return;
       void getQueue()
@@ -110,7 +121,7 @@ export function useSignalCollector(options: SignalCollectorOptions): { awayNow: 
           const delay = Math.min(BACKOFF_BASE_MS * 2 ** (backoffN - 1), BACKOFF_MAX_MS);
           retryTimer = setTimeout(() => {
             retryTimer = undefined;
-            drain();
+            drainNow();
           }, delay);
         });
     };
@@ -142,7 +153,7 @@ export function useSignalCollector(options: SignalCollectorOptions): { awayNow: 
       const a = away;
       away = null;
       setAwayNow(false);
-      emitSignal('LEAVE', { durationMs: Math.max(0, Date.now() - a.startAt), questionId: a.questionId, meta: { cause: a.cause } });
+      emitSignal('LEAVE', { durationMs: Math.min(Math.max(0, Math.round(Date.now() - a.startAt)), MAX_DURATION_MS), questionId: a.questionId, meta: { cause: a.cause } });
     };
     const checkReturn = () => {
       if (!document.hidden && document.hasFocus()) endAway();
@@ -207,7 +218,7 @@ export function useSignalCollector(options: SignalCollectorOptions): { awayNow: 
       backoffN = 0;
       clearTimeout(retryTimer);
       retryTimer = undefined;
-      drain();
+      drainNow();
     };
     socket?.on('connect', onConnect);
     drain(); // 새로고침 직후 남아 있던 신호
