@@ -103,8 +103,9 @@ describe('교수자 소켓 재검증(M-1)', () => {
     // 가짜 시계를 exp 400ms 전으로 옮기고 새로 연결한다: 그 연결은 곧 끊겨야 한다.
     offsetMs = expOf(cookie) * 1000 - Date.now() - 400;
     const s2 = open(sv, { cookie });
+    const closed2 = once(s2, 'disconnect', 15_000); // connect 전에 등록한다(부하로 connect 처리가 늦어도 끊김 이벤트를 놓치지 않는다)
     await connected(s2);
-    expect(await once(s2, 'disconnect', 3000)).toBe('io server disconnect');
+    expect(await closed2).toBe('io server disconnect');
   });
 
   it('(b2) 서버 시계가 exp를 넘었으면 타이머가 아니라 재확인 주기에도 끊긴다', async () => {
@@ -126,7 +127,8 @@ describe('교수자 소켓 재검증(M-1)', () => {
     await connected(s);
     await sleep(150);
     s.close();
-    await sleep(400); // 서버가 disconnect를 처리하고 진행 중이던 조회가 끝날 시간
+    await waitForServerSockets(sv, 0); // 서버가 disconnect를 처리한 뒤부터 센다
+    await sleep(150); // 이미 시작된 조회가 끝날 시간(그 뒤로는 새 조회가 없어야 한다)
     const spy = vi.spyOn(prisma.staff, 'findUnique');
     await sleep(300);
     expect(spy).not.toHaveBeenCalled();
@@ -157,9 +159,7 @@ describe('교수자 소켓 재검증(M-1)', () => {
     expect(intervals[0]!._destroyed).toBeFalsy();
     expect(expiries[0]!._destroyed).toBeFalsy();
     s.close();
-    await sleep(500);
-    expect(intervals[0]!._destroyed).toBe(true);
-    expect(expiries[0]!._destroyed).toBe(true);
+    await until(() => intervals[0]!._destroyed === true && expiries[0]!._destroyed === true, '서버가 두 타이머를 해제');
   });
 });
 
@@ -332,12 +332,11 @@ describe('주체당 동시 소켓 수(M-2)', () => {
     const exam = await makeExam();
     const { token } = await makeAttempt(exam.id);
     const [a, b, c] = [0, 1, 2].map(() => open(sv, { auth: { sessionToken: token } }));
-    await connected(a!);
-    await connected(b!);
-    await connected(c!);
+    await Promise.all([a!, b!, c!].map(connected)); // 핸들러를 한꺼번에 먼저 등록한다(순차 await면 먼저 붙은 소켓의 connect 이벤트를 놓친다)
+    await waitForServerSockets(sv, 3);
     b!.close();
     c!.close();
-    await sleep(400); // 서버가 b, c의 disconnect를 처리할 시간
+    await waitForServerSockets(sv, 1); // 서버가 b, c의 disconnect를 처리한 뒤에 d를 연다
     const d = open(sv, { auth: { sessionToken: token } });
     await connected(d);
     expect(await quiet(a!, 'disconnect', 500)).toBe(true); // 살아 있는 소켓은 a, d 둘뿐이라 한도(3) 이내
@@ -351,8 +350,9 @@ describe('주체당 동시 소켓 수(M-2)', () => {
     for (let round = 0; round < 3; round++) {
       const list = [0, 1, 2].map(() => open(sv, { auth: { sessionToken: token } }));
       await Promise.all(list.map(connected));
+      await waitForServerSockets(sv, 3);
       for (const s of list) s.close();
-      await sleep(200);
+      await waitForServerSockets(sv, 0);
     }
     const fresh = [0, 1, 2].map(() => open(sv, { auth: { sessionToken: token } }));
     await Promise.all(fresh.map(connected));
@@ -404,10 +404,11 @@ async function rawConnect(sv: Server): Promise<{ ws: WebSocket; frames: string[]
   });
   return { ws, frames };
 }
-async function until(cond: () => boolean, ms = 15_000): Promise<void> {
+const waitForServerSockets = (sv: Server, n: number) => until(() => sv.io.sockets.sockets.size === n, `서버의 소켓 수 ${n}`);
+async function until(cond: () => boolean, what = 'condition', ms = 15_000): Promise<void> {
   const end = Date.now() + ms;
   while (!cond()) {
-    if (Date.now() > end) throw new Error('timeout in until');
+    if (Date.now() > end) throw new Error(`timeout waiting for ${what}`);
     await sleep(20);
   }
 }
