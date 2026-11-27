@@ -194,10 +194,8 @@ test('마감 처리: 제한 시간이 지나면 1초 안에 제출 완료 화면
   await expect(heading).toBeVisible({ timeout: 5000 });
   const lag = Date.now() - endsAt;
   console.log(`마감 후 제출 완료 화면까지 ${lag}ms`);
-  // AC는 "1초 안"이다. 서버 마감 티커가 1초 주기라 지연은 0~1초 + 처리·전달 시간으로 분포하므로,
-  // 1초를 넘기는 경우가 가끔 생긴다(측정값은 보고서 참고). 테스트는 2초 안을 필수로 하고 1초 초과는 주석으로 남긴다.
-  if (lag > 1000) test.info().annotations.push({ type: 'AC-1초-초과', description: `${lag}ms` });
-  expect(lag).toBeLessThanOrEqual(2000);
+  // AC(F-11)는 "마감 후 1초 안"이다. 서버 마감 티커가 250ms 주기이므로 1초 이내를 필수로 단정한다.
+  expect(lag).toBeLessThanOrEqual(1000);
 
   // 마감으로 제출된 답안이 보존됐는지(서술형 답안이 결과 화면에 보인다)
   await api.post(`/api/exams/${examId}/end`).catch(() => undefined);

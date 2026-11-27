@@ -7,9 +7,14 @@ import { submitAttempt } from '../services/submission';
 export interface TickDeps {
   submit: (attemptId: string, reason: SubmitReason, now: Date) => Promise<Attempt>;
   log: (...args: unknown[]) => void;
+  /** 잠그기 전에 잠금 없는 조회로 종료 가능한 시험만 거른다(기본 true). false면 후보 전부를 잠가 본다(동작 비교 테스트용). */
+  prefilter: boolean;
 }
 
-const defaultDeps: TickDeps = { submit: submitAttempt, log: (...args) => console.error(...args) };
+/** 마감 점검 주기. SPEC F-11(마감 후 1초 안 제출 완료 화면)을 안정적으로 만족시키려 250ms로 둔다. */
+export const TICK_INTERVAL_MS = 250;
+
+const defaultDeps: TickDeps = { submit: submitAttempt, log: (...args) => console.error(...args), prefilter: true };
 
 /**
  * 마감 처리 1회(SPEC 2.2, F-11).
@@ -18,7 +23,7 @@ const defaultDeps: TickDeps = { submit: submitAttempt, log: (...args) => console
  * @returns TIMEOUT으로 제출 처리된 응시 수
  */
 export async function tickDeadlines(now: Date, deps: Partial<TickDeps> = {}): Promise<number> {
-  const { submit, log } = { ...defaultDeps, ...deps };
+  const { submit, log, prefilter } = { ...defaultDeps, ...deps };
 
   // extraSeconds는 0 이상이므로 exam.endsAt <= now는 필요조건이다(SQL로 후보를 줄이고, 정확한 마감은 JS에서 한 번 더 계산).
   const candidates = await prisma.attempt.findMany({
@@ -37,7 +42,17 @@ export async function tickDeadlines(now: Date, deps: Partial<TickDeps> = {}): Pr
     }
   }
 
-  const running = await prisma.exam.findMany({ where: { status: 'RUNNING', endsAt: { lt: now } }, select: { id: true } });
+  // 마감이 지났어도 대기·승인대기 응시가 남은 시험은 교수자가 수동 종료할 때까지 계속 후보가 된다.
+  // 매 틱 시험 행을 FOR UPDATE로 잠그지 않도록, 잠금 없는 조회로 종료 가능한(미종착 응시 0개) 시험만 먼저 고른다.
+  // 잠금 안의 재검사는 그대로 두므로(사이에 상태가 바뀔 수 있다) 결과는 같다.
+  const running = await prisma.exam.findMany({
+    where: {
+      status: 'RUNNING',
+      endsAt: { lt: now },
+      ...(prefilter ? { attempts: { none: { state: { notIn: ['SUBMITTED', 'TERMINATED', 'REJECTED'] } } } } : {}),
+    },
+    select: { id: true },
+  });
   for (const { id } of running) {
     try {
       await runExamTx(async (tx) => {
@@ -63,12 +78,12 @@ export interface TickerOptions {
 }
 
 /**
- * 1초(기본)마다 tickDeadlines를 돌린다. 이전 실행이 끝나지 않았으면 이번 틱은 건너뛰고(겹침 없음),
+ * TICK_INTERVAL_MS(250ms, 기본)마다 tickDeadlines를 돌린다. 이전 실행이 끝나지 않았으면 이번 틱은 건너뛰고(겹침 없음),
  * 예외는 로그만 남기고 다음 틱에 계속한다. 타이머는 unref되어 프로세스 종료를 막지 않는다.
  * stop()은 타이머를 멈추고 진행 중인 실행이 끝나기를 기다린다.
  */
 export function startDeadlineTicker(options: TickerOptions = {}): { stop(): Promise<void> } {
-  const { intervalMs = 1000, tick = tickDeadlines, log = (...args: unknown[]) => console.error(...args) } = options;
+  const { intervalMs = TICK_INTERVAL_MS, tick = tickDeadlines, log = (...args: unknown[]) => console.error(...args) } = options;
   let running: Promise<void> | null = null;
   let stopped = false;
 
