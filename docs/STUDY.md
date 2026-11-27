@@ -124,4 +124,36 @@
 | 화면과 API를 한 서버가 제공할 때 **새로고침하면 404**가 난다(화면 라우트는 서버에 파일이 없다) | 화면 라우트를 `index.html`로 돌려주는 규칙이 필요함을 설계 중 인지 | 확장자·숨김 세그먼트가 있는 경로는 404, 해시 파일은 오래 캐시·`index.html`은 `no-cache`. 테스트 17개 |
 | 프록시(Railway) 뒤에서는 모든 요청의 IP가 프록시 IP로 보인다 | 학생 입장 횟수 제한이 IP 기준이라는 요구(계획 1 Task 8)에서 예상 | 운영에서만 `trust proxy`를 켜서 `X-Forwarded-For`의 클라이언트 IP를 사용(프록시 없이 켜면 IP를 위조당할 수 있음) |
 
-*(이후 추가 예정: Socket.IO 실시간 통신, Prisma·PostgreSQL 트랜잭션, 배포(Railway), 부하 테스트, 우회 시나리오 테스트(PRD 성공 기준 5))*
+*(이후 추가 예정: Socket.IO 실시간 통신, Prisma·PostgreSQL 트랜잭션, 부하 테스트, 우회 시나리오 테스트(PRD 성공 기준 5))*
+
+---
+
+## 7. 배포: 프록시 뒤에서 달라지는 것들
+
+이 절은 **배포 전에** 코드·ADR·테스트에서 확인되는 사실만 적은 것이다. 실제 Railway 배포 결과와 수치는 아직 없으며, 확인하지 못한 것은 "미확인"으로 표시했다.
+
+### 몰랐던 것
+- **프록시 뒤의 `req.ip`**: 프록시가 있으면 서버가 보는 연결 상대는 프록시라서, 기본값으로는 모든 요청의 IP가 같게 보인다. 그래서 `X-Forwarded-For` 헤더를 읽어야 하는데, 이 헤더는 클라이언트가 직접 써서 보낼 수도 있다. Express의 `trust proxy`에 **프록시가 몇 겹인지(홉 수)** 를 정확히 알려 줘야 한다. 프록시가 없는데 켜면 IP를 위조당하고(로그인 시도 제한 우회), 실제보다 적게 잡으면 모두 프록시 IP로 보여 전원이 함께 차단된다. 이 서버는 `NODE_ENV=production`일 때만 1을 쓴다(`server/src/index.ts`). Railway가 실제로 프록시 1겹인지는 **미확인**이다(작업 지시서의 가정: 가장 오른쪽 값이 Railway가 덧붙인 값).
+- **Origin 검사와 `Host`·`X-Forwarded-Proto`**: 같은 출처인지 `스킴://Host`를 만들어 Origin과 문자열 전체로 비교한다(`originCheck.ts`). 프록시가 TLS를 끝내면 서버는 `http`로 받으므로 스킴을 `X-Forwarded-Proto`에서 가져와야 `https` Origin과 맞는다. HTTP API는 `trust proxy`가 켜진 경우 `req.protocol`이 이를 따른다. 웹소켓 쪽은 `socket.ts`가 직접 헤더를 읽는데, **production에서만** 이 헤더를 믿는다(헤더는 위조 가능하므로 프록시가 없는 개발·테스트에서는 무시, `trust proxy`와 같은 조건).
+- **웹소켓의 Origin 검사와 JSONP 폴링 우회**: 웹소켓 핸드셰이크와 fetch 폴링은 브라우저가 Origin을 붙이지만, Engine.IO의 JSONP 폴링은 `<script src>`로 요청되어 **Origin 없이 쿠키가 실릴 수 있다**. Origin이 없으면 허용하는 규칙만으로는 이 경로가 통과한다. 코드 리뷰(작업 지시서 기준 Opus 리뷰)에서 발견되어, `allowRequest`에서 JSONP(`j` 쿼리)를 거부하고 Origin이 없을 때는 `Sec-Fetch-Site`가 `same-origin`·`none`이 아니면 거부하도록 수정했다. 테스트: `server/test/realtime.test.ts`("JSONP·Fetch Metadata·옵션").
+- **Secure 쿠키와 HTTPS**: 교수자 쿠키는 `httpOnly`, `sameSite: 'lax'`이고 `secure`는 production에서만 켠다(`staffAuth.ts`). Secure 쿠키는 HTTPS에서만 전송되므로 production을 `http`로 열면 로그인 쿠키가 붙지 않는다(개발은 `http://localhost`라 꺼 둔다).
+- **설정 파일 대신 서비스 설정**: Railway의 `railway.json`은 폐지되어 2026-12-01 이후 읽지 않고 새 서비스는 쓸 수 없다(ADR-012, 공식 문서 원문으로 확인). 대신 대시보드의 Build·Start·Pre-deploy 명령과 표준 스크립트를 쓴다. 대가로 설정이 코드로 버전 관리되지 않아 README 절차에 의존한다.
+- **Pre-deploy 마이그레이션**: DB 마이그레이션을 시작 명령에 넣으면 실패해도 앱이 죽은 채 재시작을 반복한다. Pre-deploy에 두면 새 버전이 뜨기 전에 실행되고 **실패 시 배포가 중단**된다(ADR-012).
+
+### 공부한 자료와 방법
+- 읽은 코드: `server/src/app.ts`, `index.ts`, `static.ts`, `security/originCheck.ts`, `realtime/socket.ts`, `auth/staffAuth.ts`, `scripts/demo-reset.ts`. 읽은 문서: `docs/DECISIONS.md`의 ADR-012(및 ADR-003·004·005의 관련 부분).
+- 테스트로 확인된 것: 화면 폴백·404 규칙(`static.test.ts`), Origin 검사 규칙(`originCheck.test.ts`), 소켓 JSONP·Fetch Metadata(`realtime.test.ts`).
+- Express `trust proxy`와 Railway의 프록시 동작에 대한 공식 문서는 이 절을 쓰는 시점에 새로 읽지 않았다(**미확인**). 배포 후 실제 헤더를 확인해야 한다.
+
+### 서비스에 적용한 과정과 결과
+- 운영에서만 `trust proxy`(1)를 켜고, 로그인·입장 시도 제한은 `req.ip`만 쓴다(헤더를 직접 파싱하지 않음). 위조 가능성은 홉 수가 맞아야 막힌다는 전제에 의존한다.
+- HTTP와 웹소켓 모두 Origin을 문자열 전체 일치로 검사하고, 소켓에는 JSONP 차단과 Fetch Metadata 검사를 추가했다. 단, 소켓의 Origin 규칙은 `originCheck.ts`와 **복제**되어 있어 규칙을 바꾸면 두 곳을 함께 고쳐야 한다(`socket.ts` 주석).
+- 데모 데이터는 서비스가 아니라 사용자 PC에서 `demo:reset`으로 만든다. `DEMO_STAFF_PASSWORD`·`DEMO_PASSCODE`는 서버 코드가 읽지 않으므로 서비스 변수에 두지 않는다(README "배포 (Railway)").
+- 결과: 배포 전이라 **없음**.
+
+### 배포 후 확인할 것
+(체크리스트 전체는 README "배포 후 검증 체크리스트". 여기에는 학습 가치가 있는 항목만 남긴다. 결과는 확인한 뒤 기입한다.)
+- [ ] 실제 요청에서 `req.ip`가 클라이언트 IP인지(5회 틀린 로그인이 그 PC만 막고 다른 네트워크는 막지 않는지) — `trust proxy` 홉 수 가정 검증. 결과: (배포 후 기입)
+- [ ] 같은 출처 로그인이 Railway의 `Host`·`X-Forwarded-Proto` 아래에서 Origin 검사를 통과하는지, 쿠키가 Secure로 설정되는지. 결과: (배포 후 기입)
+- [ ] 웹소켓이 Railway 프록시를 통과하는지, 소켓 Origin 검사가 production에서 같은 출처 연결을 허용하는지(입장 현황 실시간 갱신). 결과: (배포 후 기입)
+- [ ] Pre-deploy 마이그레이션이 배포 로그에서 새 버전 시작 전에 실행되는지. 결과: (배포 후 기입)
