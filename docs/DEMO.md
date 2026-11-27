@@ -38,8 +38,9 @@
 # 개발·테스트 환경 (입장 비밀번호 기본값 246810)
 DEMO_STAFF_PASSWORD=<교수자 비밀번호> npm run demo:reset
 
-# 운영(Render 등): 입장 비밀번호를 6자리 숫자로 직접 지정해야 실행됩니다
-NODE_ENV=production DATABASE_URL=<운영 DB 주소> DEMO_STAFF_PASSWORD=<교수자 비밀번호> DEMO_PASSCODE=<6자리 숫자> npm run demo:reset
+# 운영(Render 등): 입장 비밀번호를 6자리 숫자로 직접 지정해야 실행됩니다.
+# 비밀 값(DB 주소·교수자 비밀번호)은 명령줄에 직접 쓰지 말고(셸 기록에 남음)
+# README "배포 (Render 무료)"의 "배포 서버에 데모 데이터 넣기" 절차(read -rs 입력 + unset)를 따르세요.
 ```
 
 - **실행 전에 `DATABASE_URL`이 대상 DB인지 반드시 확인하세요.** 이 명령은 `.env`의 `DATABASE_URL`을 자동으로 읽습니다(`--env-file-if-exists=.env`). 개발 PC의 `.env`가 운영 DB를 가리키면 의도치 않게 운영 DB의 데모 데이터를 지우고 다시 만듭니다(데모 교수자 소유 데이터만 영향을 받지만 시연 중이라면 시험이 초기화됩니다). 대상 DB를 바꿀 때는 위 예시처럼 `DATABASE_URL`을 명령줄로 직접 지정하세요.
@@ -60,8 +61,9 @@ npx playwright install chromium            # 처음 한 번
 DATABASE_URL=postgresql://exam:exam@localhost:5432/exam_e2e npm run db:deploy -w @exam/server
 # 실행: 빌드된 서버를 3100 포트로 띄우고(시작 전에 데모 데이터 재생성) 점검. 값은 이 실행에만 쓰는 임의 값
 DATABASE_URL=postgresql://exam:exam@localhost:5432/exam_e2e JWT_SECRET=<32자 이상 임의> DEMO_STAFF_PASSWORD=<임의> DEMO_PASSCODE=246810 npm run e2e
-# 배포 URL 대상 (서버를 띄우지 않음, 미리 demo:reset 필요)
-PLAYWRIGHT_BASE_URL=https://<서비스 주소> DEMO_STAFF_PASSWORD=<값> DEMO_PASSCODE=<값> npm run e2e
+# 배포 URL 대상 (서버를 띄우지 않음, 미리 demo:reset 필요).
+# 교수자·입장 비밀번호는 명령줄에 쓰지 말고 README "배포 URL 대상 E2E"의 read -rs 방식으로 입력하세요.
+PLAYWRIGHT_BASE_URL=https://<서비스 주소> npm run e2e
 ```
 
 **배포 URL 대상 실행은 배포 서버의 데이터를 바꿉니다.** 데모 시험을 시작·종료하고, 학생01의 응시와 설문을 만들고, 데모 교수자 소유의 `[데모] 1분 마감 시험`을 추가합니다. 평가자 시연 직전에는 실행하지 말고, 실행했다면 **끝난 뒤 반드시 `demo:reset`으로 되돌리세요**(시험 코드도 새로 바뀌므로 제출 안내의 입장 주소를 다시 확인).

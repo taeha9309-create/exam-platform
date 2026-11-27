@@ -152,8 +152,9 @@ for i in 1 2 3 4 5 6; do
 done
 ```
 - 위조 값을 바꿔도 **6번째에 429가 나와야** 안전합니다(IP+이메일당 15분 5회 실패 한도). 6번 모두 401이면 위조한 값이 IP로 쓰이는 것이므로 홉 수를 확인합니다. 로그인 경로·응답 코드는 배포 전에 로컬 서버에서 같은 명령으로 먼저 시험해 보세요(이 문서는 Render에서 실행해 보지 않았습니다).
-- 휴대폰 데이터에서는 막히지 않아야 합니다. 막히면(모두 하나의 IP로 묶인 것) `TRUST_PROXY_HOPS=2`로 올려 재배포한 뒤 다시 확인합니다.
-- 한 번 막히면 15분 동안 그 IP·이메일 조합이 막힙니다. **시연 직전에는 하지 마세요.** 서버 재시작으로 풀리는지는 미확인입니다.
+- 휴대폰 데이터에서는 막히지 않아야 합니다. 막히면(모두 하나의 IP로 묶인 것) `TRUST_PROXY_HOPS=2`로 올려 재배포합니다.
+- **홉 수를 바꾼 뒤에는 위조 시험(6번째에 429)과 휴대폰 시험을 둘 다 다시 합니다.** 홉 수가 실제보다 크면 위조로 한도를 우회할 수 있고 작으면 모두 한 IP로 묶이므로, 한쪽만 확인하면 반대쪽 문제를 놓칩니다.
+- 한 번 막히면 15분 동안 그 IP·이메일 조합이 막힙니다. **시연 직전에는 하지 마세요.** 제한 상태는 서버 메모리에만 있어서 **서버가 재시작되면(무료 서비스가 잠들었다 깨어날 때 포함) 초기화됩니다**(코드 기준: `server/src/security/loginProtection.ts`).
 
 ### 운영 안내 (평가자·시연자에게 전달)
 - **처음 접속이 느리면 1분 정도 기다리세요**(무료 서비스가 잠들어 있다가 깨어납니다). 시연 몇 분 전에 주소를 한 번 열어 깨워 두세요.
@@ -162,7 +163,10 @@ done
 
 ### 배포 URL 대상 E2E
 ```bash
-PLAYWRIGHT_BASE_URL=https://<이름>.onrender.com DEMO_STAFF_PASSWORD=<교수자 비밀번호> DEMO_PASSCODE=<6자리 숫자> npm run e2e
+read -rs -p "교수자 비밀번호: " DEMO_STAFF_PASSWORD; export DEMO_STAFF_PASSWORD; echo   # 입력이 화면·기록에 남지 않음
+read -rs -p "입장 비밀번호(6자리): " DEMO_PASSCODE; export DEMO_PASSCODE; echo
+PLAYWRIGHT_BASE_URL=https://<이름>.onrender.com npm run e2e
+unset DEMO_STAFF_PASSWORD DEMO_PASSCODE                                              # 끝나면 지움
 ```
 **배포 서버의 데이터를 바꿉니다**(데모 시험 시작·종료, 학생01 응시·설문 생성, `[데모] 1분 마감 시험` 추가). 미리 `demo:reset`이 되어 있어야 하며, **시연 직전에는 실행하지 말고** 실행했다면 끝난 뒤 `demo:reset`으로 되돌립니다. 자세한 내용은 [docs/DEMO.md](docs/DEMO.md) 3장.
 
