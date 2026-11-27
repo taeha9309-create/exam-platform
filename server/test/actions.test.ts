@@ -493,6 +493,30 @@ describe('GET /timeline (j)', () => {
     expect(res.body.signals[499].durationMs).toBe(502);
   });
 
+  it.each([
+    [520, true, 20, 519],
+    [501, true, 1, 500],
+    [500, false, 0, 499],
+    [499, false, 0, 498],
+    [3, false, 0, 2],
+  ])('신호 %i개: truncated=%s, 가장 최근 것만 시간 오름차순(처음 durationMs=%i, 마지막=%i)', async (count, truncated, firstIdx, lastIdx) => {
+    const f = await fixture();
+    const base = Date.now() - 2_000_000;
+    // 일부러 역순으로 넣어 삽입 순서가 아니라 receivedAt 순서로 정렬되는지 확인한다.
+    await prisma.signal.createMany({
+      data: Array.from({ length: count }, (_, k) => count - 1 - k).map((i) => ({
+        attemptId: f.attempt.id, type: 'HEARTBEAT_GAP' as const, severity: 'WARN' as const, receivedAt: new Date(base + i * 1000), durationMs: i,
+      })),
+    });
+    const res = await request(app).get(`/api/attempts/${f.attempt.id}/timeline`).set('Cookie', cookie);
+    const d: number[] = res.body.signals.map((s: { durationMs: number }) => s.durationMs);
+    expect(res.body.truncated).toBe(truncated);
+    expect(d).toHaveLength(Math.min(count, 500));
+    expect(d[0]).toBe(firstIdx);
+    expect(d[d.length - 1]).toBe(lastIdx);
+    expect(d).toEqual([...d].sort((a, b) => a - b));
+  });
+
   it('다른 응시의 신호·조치는 섞이지 않는다', async () => {
     const a = await fixture({ studentNo: '20260001' });
     const b = await fixture({ studentNo: '20260002' }, a.exam);
