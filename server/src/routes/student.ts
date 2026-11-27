@@ -2,7 +2,9 @@ import { Router, type NextFunction, type Request, type RequestHandler, type Resp
 import { z } from 'zod';
 import { findAttemptByToken } from '../auth/studentSession';
 import { prisma } from '../db';
+import { attemptDeadline } from '../domain/deadline';
 import { AppError } from '../errors';
+import { submitAttempt } from '../services/submission';
 import { confirmEntry, createEntryGuard, recordConsent, recordEnv, studentAttemptView, verifyEntry, type EntryGuardOptions } from '../services/entry';
 import { safeString } from '../validation';
 
@@ -131,6 +133,70 @@ export function createStudentRouter(options: StudentRouterOptions = {}): Router 
       const parsed = envSchema.safeParse(req.body);
       if (!parsed.success) throw INVALID_INPUT();
       res.json(await recordEnv(req.studentAttempt!, { browser: parsed.data.browser, isExtended: parsed.data.isExtended }));
+    }),
+  );
+
+  // 응시 화면용 문항·답안. ACTIVE이고 마감 전일 때만(SPEC F-11). 정답(correctChoiceId)·채점 결과·비밀값은 절대 내려주지 않는다.
+  // 응답은 허용 목록(allow-list)으로 필드를 직접 조립한다(DB 행을 그대로 넘기지 않는다).
+  router.get(
+    '/student/exam',
+    requireStudent,
+    wrap(async (req, res) => {
+      const attempt = req.studentAttempt!;
+      const deadline = attempt.exam.endsAt ? attemptDeadline(attempt.exam.endsAt, attempt.extraSeconds) : null;
+      if (attempt.state !== 'ACTIVE' || attempt.exam.status !== 'RUNNING' || !deadline || Date.now() >= deadline.getTime()) {
+        throw new AppError(403, 'NOT_ACTIVE', '응시 중일 때만 문항을 볼 수 있습니다.');
+      }
+      const [questions, answers] = await Promise.all([
+        prisma.question.findMany({ where: { examId: attempt.examId } }),
+        prisma.answer.findMany({ where: { attemptId: attempt.id } }),
+      ]);
+      const byId = new Map(questions.map((q) => [q.id, q]));
+      const questionOrder = Array.isArray(attempt.questionOrder) ? (attempt.questionOrder as unknown[]) : [];
+      const choiceOrders = (typeof attempt.choiceOrders === 'object' && attempt.choiceOrders !== null && !Array.isArray(attempt.choiceOrders) ? attempt.choiceOrders : {}) as Record<string, unknown>;
+
+      const out = [];
+      for (const id of questionOrder) {
+        const q = typeof id === 'string' ? byId.get(id) : undefined;
+        if (!q) continue;
+        if (q.type !== 'MCQ') {
+          out.push({ id: q.id, type: q.type, prompt: q.prompt, points: q.points });
+          continue;
+        }
+        const all = (Array.isArray(q.choices) ? q.choices : []) as { id: string; text: string }[];
+        const choiceById = new Map(all.map((c) => [c.id, c]));
+        const order = Object.hasOwn(choiceOrders, q.id) && Array.isArray(choiceOrders[q.id]) ? (choiceOrders[q.id] as unknown[]) : all.map((c) => c.id);
+        const choices = order.flatMap((cid) => {
+          const c = typeof cid === 'string' ? choiceById.get(cid) : undefined;
+          return c ? [{ id: c.id, text: c.text }] : [];
+        });
+        out.push({ id: q.id, type: q.type, prompt: q.prompt, points: q.points, choices });
+      }
+      res.set('Cache-Control', 'no-store');
+      res.json({
+        questions: out,
+        answers: answers.map((a) => ({
+          questionId: a.questionId,
+          ...(a.choiceId !== null ? { choiceId: a.choiceId } : {}),
+          ...(a.text !== null ? { text: a.text } : {}),
+          rev: a.rev,
+          savedAt: a.savedAt,
+        })),
+      });
+    }),
+  );
+
+  // 학생 제출. 이미 제출됐으면 그대로 200(멱등). 시험 시작 전(WAITING)·입장 승인 대기·거절·잠김(종료) 상태는 제출할 수 없다.
+  router.post(
+    '/student/submit',
+    requireStudent,
+    wrap(async (req, res) => {
+      const attempt = req.studentAttempt!;
+      if (attempt.state !== 'ACTIVE' && attempt.state !== 'PAUSED' && attempt.state !== 'SUBMITTED') {
+        throw new AppError(403, 'NOT_ACTIVE', '응시 중일 때만 제출할 수 있습니다.');
+      }
+      const done = await submitAttempt(attempt.id, 'STUDENT');
+      res.json({ state: done.state, submittedAt: done.submittedAt });
     }),
   );
 

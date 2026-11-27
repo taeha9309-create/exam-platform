@@ -7,13 +7,37 @@ import { Server, type Socket } from 'socket.io';
 import { authenticateStaff, STAFF_COOKIE } from '../auth/staffAuth';
 import { findAttemptByToken } from '../auth/studentSession';
 import { prisma } from '../db';
+import { AppError } from '../errors';
+import { saveAnswer } from '../services/submission';
 import { attemptRoom, attemptStatePayload, setIo, staffRoom, studentsRoom } from './broadcast';
 
 /** 연결 거부 사유는 항상 이 고정 문자열이다. 토큰 없음·위조·삭제된 계정·모르는 학생 토큰을 밖에서 구별할 수 없게 한다. */
 const AUTH_ERROR = 'UNAUTHORIZED';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type SocketData = { role: 'student'; attemptId: string; examId: string } | { role: 'staff'; staffId: string };
+/** sessionTokenHash: 소켓 인증 때의 토큰 해시(원문 아님). answer:save가 저장할 때마다 DB의 현재 해시와 비교한다(세션 폐기 감지). */
+type SocketData = { role: 'student'; attemptId: string; examId: string; sessionTokenHash: string } | { role: 'staff'; staffId: string };
+
+/**
+ * answer:save 소켓당 속도 제한(토큰 버킷). 정상 자동 저장은 문항당 1초 디바운스 + 5초 주기라 초당 몇 건이지만,
+ * 오프라인 뒤 재연결하면 미저장 문항(최대 100개)을 한꺼번에 보낼 수 있어 버스트를 넉넉히 허용한다.
+ * 한도를 넘으면 DB에 가지 않고 BUSY(SPEC 코드 목록에 속도 제한 전용 코드가 없어 가장 가까운 "잠시 후 다시")로 답한다.
+ */
+export const ANSWER_SAVE_BURST = 100;
+export const ANSWER_SAVE_REFILL_PER_SEC = 20;
+
+interface Bucket {
+  tokens: number;
+  at: number;
+}
+
+function takeToken(bucket: Bucket, nowMs: number): boolean {
+  bucket.tokens = Math.min(ANSWER_SAVE_BURST, bucket.tokens + ((nowMs - bucket.at) / 1000) * ANSWER_SAVE_REFILL_PER_SEC);
+  bucket.at = nowMs;
+  if (bucket.tokens < 1) return false;
+  bucket.tokens -= 1;
+  return true;
+}
 
 /** URL의 출처(소문자 스킴://호스트[:기본 포트 생략]). 형식이 틀렸거나 "null" 출처면 null. */
 function originOf(value: string): string | null {
@@ -79,7 +103,7 @@ async function authenticate(socket: Socket): Promise<SocketData | null> {
     const attempt = await findAttemptByToken(sessionToken);
     if (!attempt) return null;
     socket.data.attempt = attempt; // 연결 직후 attempt:state에 쓴다. 토큰 원문은 어디에도 보관·기록하지 않는다.
-    return { role: 'student', attemptId: attempt.id, examId: attempt.examId };
+    return { role: 'student', attemptId: attempt.id, examId: attempt.examId, sessionTokenHash: attempt.sessionTokenHash };
   }
 
   // 교수자: HTTP와 같은 authenticateStaff(서명·만료 검증 + DB 재조회).
@@ -114,6 +138,40 @@ async function handleDashboardJoin(socket: Socket, payload: unknown, ack: unknow
     reply({ ok: true });
   } catch {
     reply({ ok: false, code: 'INTERNAL' });
+  }
+}
+
+type SaveAck = (res: { ok: true; savedAt: string } | { ok: false; code: string }) => void;
+
+/**
+ * 답안 저장(F-11). 학생 소켓만. ack는 {ok:true,savedAt} 또는 {ok:false,code}뿐이고 내부 오류 내용은 내보내지 않는다.
+ * 저장할 때마다 saveAnswer가 DB에서 토큰 해시·상태·마감을 다시 확인한다(소켓은 인증 뒤에도 세션이 폐기될 수 있다).
+ */
+async function handleAnswerSave(socket: Socket, payload: unknown, ack: unknown, bucket: Bucket): Promise<void> {
+  // 페이로드 없이 emitWithAck하면 ack가 첫 인자로 들어온다.
+  if (typeof payload === 'function' && ack === undefined) {
+    ack = payload;
+    payload = undefined;
+  }
+  const send: SaveAck = (res) => {
+    if (typeof ack !== 'function') return;
+    try {
+      (ack as SaveAck)(res);
+    } catch {
+      // 연결이 이미 끊겼어도 서버는 계속 동작한다.
+    }
+  };
+  const data = socket.data as SocketData;
+  if (data.role !== 'student') return send({ ok: false, code: 'UNAUTHORIZED' });
+  if (!takeToken(bucket, Date.now())) return send({ ok: false, code: 'BUSY' });
+  try {
+    const res = await saveAnswer(data.attemptId, data.sessionTokenHash, payload, new Date());
+    if (res.ok) return send({ ok: true, savedAt: res.savedAt.toISOString() });
+    send({ ok: false, code: res.code });
+    if (res.revoked) setTimeout(() => socket.disconnect(true), 50).unref(); // ack가 먼저 전달되도록 잠깐 뒤에 끊는다.
+  } catch (err) {
+    console.error('답안 저장 실패', err instanceof Error ? err.message : 'unknown');
+    send({ ok: false, code: err instanceof AppError && err.code === 'BUSY' ? 'BUSY' : 'INTERNAL' });
   }
 }
 
@@ -171,6 +229,9 @@ export function attachSocket(httpServer: HttpServer): Server {
     socket.on(EV.DASHBOARD_JOIN, (payload: unknown, ack: unknown) => void handleDashboardJoin(socket, payload, ack));
 
     const data = socket.data as SocketData & { attempt?: Attempt & { exam: Exam } };
+    const bucket: Bucket = { tokens: ANSWER_SAVE_BURST, at: Date.now() };
+    socket.on(EV.ANSWER_SAVE, (payload: unknown, ack: unknown) => void handleAnswerSave(socket, payload, ack, bucket));
+
     if (data.role === 'student') {
       delete data.attempt; // authenticate가 읽은 값은 낡을 수 있어 쓰지 않는다(아래에서 DB를 다시 읽는다).
       void syncStudentState(socket, data.attemptId, data.examId).catch(() => socket.disconnect(true));
