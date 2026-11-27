@@ -117,6 +117,30 @@ async function handleDashboardJoin(socket: Socket, payload: unknown, ack: unknow
   }
 }
 
+/**
+ * 학생 소켓 연결 직후 현재 상태를 보낸다. 인증이 끝난 연결에서만 호출된다.
+ * 방에 먼저 들어간 뒤 DB를 읽는다: 읽기 이후의 상태 변경은 방 브로드캐스트로 받으므로 놓치는 틈이 없다.
+ * 응시가 그 사이 삭제됐으면 보낼 상태가 없으므로 연결을 끊는다. 종착 상태(제출·종료·거절)는 그대로 보낸다.
+ */
+async function syncStudentState(socket: Socket, attemptId: string, examId: string): Promise<void> {
+  await socket.join([attemptRoom(attemptId), studentsRoom(examId)]);
+  const attempt = await prisma.attempt.findUnique({ where: { id: attemptId }, include: { exam: true } });
+  if (!attempt) {
+    socket.disconnect(true);
+    return;
+  }
+  if (!socket.connected) return;
+  socket.emit(EV.ATTEMPT_STATE, attemptStatePayload(attempt, attempt.exam));
+  if (attempt.state === 'WAITING') {
+    // broadcast.waitingCount와 같은 조건(준비 완료 = WAITING + 동의 + 환경 점검). 이 소켓에만 보낸다.
+    const [ready, total] = await Promise.all([
+      prisma.attempt.count({ where: { examId: attempt.examId, state: 'WAITING', consentAt: { not: null }, envCheckedAt: { not: null } } }),
+      prisma.rosterEntry.count({ where: { examId: attempt.examId } }),
+    ]);
+    if (socket.connected) socket.emit(EV.WAITING_COUNT, { ready, total });
+  }
+}
+
 /** http 서버에 Socket.IO를 붙인다. 교수자는 쿠키 staff_token, 학생은 handshake.auth.sessionToken으로 인증한다. */
 export function attachSocket(httpServer: HttpServer): Server {
   const io = new Server(httpServer, {
@@ -147,11 +171,9 @@ export function attachSocket(httpServer: HttpServer): Server {
     socket.on(EV.DASHBOARD_JOIN, (payload: unknown, ack: unknown) => void handleDashboardJoin(socket, payload, ack));
 
     const data = socket.data as SocketData & { attempt?: Attempt & { exam: Exam } };
-    if (data.role === 'student' && data.attempt) {
-      const { attempt } = data;
-      delete data.attempt;
-      void socket.join([attemptRoom(attempt.id), studentsRoom(attempt.examId)]);
-      socket.emit(EV.ATTEMPT_STATE, attemptStatePayload(attempt, attempt.exam));
+    if (data.role === 'student') {
+      delete data.attempt; // authenticate가 읽은 값은 낡을 수 있어 쓰지 않는다(아래에서 DB를 다시 읽는다).
+      void syncStudentState(socket, data.attemptId, data.examId).catch(() => socket.disconnect(true));
     }
   });
 

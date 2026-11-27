@@ -6,6 +6,7 @@ import { prisma } from '../src/db';
 import { generateToken, hashToken } from '../src/auth/studentSession';
 import { signStaffToken } from '../src/auth/staffAuth';
 import { broadcast } from '../src/realtime/broadcast';
+import { startExam } from '../src/services/examLifecycle';
 import { staffCookie } from './helpers/auth';
 import { makeExam, makeStaff, resetDb } from './helpers/db';
 import { startTestServer } from './helpers/server';
@@ -346,5 +347,79 @@ describe('Origin 검사(교차 출처 웹소켓 하이재킹 방어)', () => {
     const s = open({ cookie: staffCookie(staff.id), origin: 'null' });
     expect((await connectError(s)).message).not.toBe('');
     expect(s.connected).toBe(false);
+  });
+});
+
+describe('재연결 시 현재 상태 동기화', () => {
+  const ready = { consentAt: new Date(), envCheckedAt: new Date() };
+
+  it('연결 → 끊기 → startExam → 재연결: 첫 attempt:state가 ACTIVE이고 deadline이 endsAt 기반', async () => {
+    const exam = await makeExam({ status: 'OPEN', passcode: 'A1B2C3' });
+    const { attempt, token } = await makeAttempt(exam.id);
+    await prisma.attempt.update({ where: { id: attempt.id }, data: ready });
+
+    const first = open({ auth: { sessionToken: token } });
+    expect((await once<{ state: string }>(first, EV.ATTEMPT_STATE)).state).toBe('WAITING');
+    first.close();
+
+    const started = await startExam(exam.id);
+    const second = open({ auth: { sessionToken: token } });
+    const got = await once<{ state: string; deadline: number | null }>(second, EV.ATTEMPT_STATE);
+    expect(got.state).toBe('ACTIVE');
+    expect(got.deadline).toBe(started.endsAt!.getTime());
+  });
+
+  it('extraSeconds가 deadline에 더해진다', async () => {
+    const exam = await makeExam({ status: 'OPEN', passcode: 'A1B2C3' });
+    const { attempt, token } = await makeAttempt(exam.id);
+    await prisma.attempt.update({ where: { id: attempt.id }, data: { ...ready, extraSeconds: 90 } });
+    const started = await startExam(exam.id);
+    const got = await once<{ deadline: number; extraSeconds: number }>(open({ auth: { sessionToken: token } }), EV.ATTEMPT_STATE);
+    expect(got.extraSeconds).toBe(90);
+    expect(got.deadline).toBe(started.endsAt!.getTime() + 90_000);
+  });
+
+  it('재연결 전에 DB 상태를 바꾸면 바뀐 값이 온다(낡은 값 없음)', async () => {
+    const exam = await makeExam({ status: 'OPEN', passcode: 'A1B2C3' });
+    const { attempt, token } = await makeAttempt(exam.id);
+    const first = open({ auth: { sessionToken: token } });
+    expect((await once<{ state: string }>(first, EV.ATTEMPT_STATE)).state).toBe('WAITING');
+    first.close();
+    await prisma.attempt.update({ where: { id: attempt.id }, data: { state: 'PAUSED', violationCount: 2 } });
+    const got = await once<{ state: string; violationCount: number }>(open({ auth: { sessionToken: token } }), EV.ATTEMPT_STATE);
+    expect(got).toMatchObject({ state: 'PAUSED', violationCount: 2 });
+  });
+
+  it('WAITING이면 연결한 소켓에만 waiting:count(준비 완료 / 명단)를 보낸다', async () => {
+    const exam = await makeExam({ status: 'OPEN', passcode: 'A1B2C3' });
+    const a = await makeAttempt(exam.id);
+    const b = await makeAttempt(exam.id);
+    await prisma.attempt.update({ where: { id: a.attempt.id }, data: ready });
+    const sa = open({ auth: { sessionToken: a.token } });
+    expect(await once<{ ready: number; total: number }>(sa, EV.WAITING_COUNT)).toEqual({ ready: 1, total: 3 });
+    // 두 번째 학생이 연결해도 이미 연결된 첫 소켓에는 waiting:count가 오지 않는다.
+    const quietA = quiet(sa, EV.WAITING_COUNT);
+    const sb = open({ auth: { sessionToken: b.token } });
+    expect(await once<{ ready: number; total: number }>(sb, EV.WAITING_COUNT)).toEqual({ ready: 1, total: 3 });
+    expect(await quietA).toBe(true);
+  });
+
+  it('WAITING이 아니면 waiting:count를 보내지 않고, 종착 응시는 그 상태를 그대로 받는다', async () => {
+    const exam = await makeExam({ status: 'ENDED' });
+    const { attempt, token } = await makeAttempt(exam.id);
+    await prisma.attempt.update({ where: { id: attempt.id }, data: { state: 'SUBMITTED' } });
+    const s = open({ auth: { sessionToken: token } });
+    const gotCount = quiet(s, EV.WAITING_COUNT);
+    const got = await once<Record<string, unknown>>(s, EV.ATTEMPT_STATE);
+    expect(got.state).toBe('SUBMITTED');
+    expect(JSON.stringify(got)).not.toMatch(/passcode|correct|Hash/i);
+    expect(await gotCount).toBe(true);
+  });
+
+  it('인증 실패 연결은 상태를 받지 못한다', async () => {
+    const s = open({ auth: { sessionToken: 'nope' } });
+    const got = quiet(s, EV.ATTEMPT_STATE, 800);
+    expect((await connectError(s)).message).toBe('UNAUTHORIZED');
+    expect(await got).toBe(true);
   });
 });
