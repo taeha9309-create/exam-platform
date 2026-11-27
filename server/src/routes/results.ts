@@ -181,8 +181,10 @@ export function createResultsRouter(): Router {
     wrap(async (req, res) => {
       const id = uuidParam.safeParse(req.params.id);
       if (!id.success) throw INVALID_INPUT();
-      const exam = await prisma.exam.findUnique({ where: { id: id.data }, select: { id: true } });
+      const exam = await prisma.exam.findUnique({ where: { id: id.data }, select: { id: true, status: true } });
       if (!exam) throw NOT_FOUND();
+      // 시험 중에는 응답 수 변화로 학생의 제출 시점과 설문이 연결될 수 있어(익명성) 종료 뒤에만 연다(SPEC 2.1).
+      if (exam.status !== 'ENDED') throw new AppError(409, 'NOT_ENDED', '시험이 끝난 뒤에 설문 결과를 볼 수 있습니다.');
       // 난이도·의견 두 열만 읽는다. 정렬하지 않으며, 순서는 어차피 셔플로 지운다.
       const rows = await prisma.surveyResponse.findMany({ where: { examId: exam.id }, select: { difficulty: true, comment: true } });
       res.set('Cache-Control', 'no-store');

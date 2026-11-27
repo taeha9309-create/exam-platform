@@ -152,6 +152,20 @@ describe('GET /api/exams/:id/survey', () => {
   });
 });
 
+describe('GET /api/exams/:id/survey 열람 시점', () => {
+  it('ENDED가 아니면 409 NOT_ENDED, ENDED면 200(진행 중 응답 수 관찰로 제출 시점과 설문이 연결되는 것을 막는다)', async () => {
+    const staff = await makeStaff();
+    for (const status of ['DRAFT', 'OPEN', 'RUNNING'] as const) {
+      const exam = await makeExam({ ownerId: staff.id, status });
+      const res = await request(app).get(`/api/exams/${exam.id}/survey`).set('Cookie', staffCookie(staff.id));
+      expect(res.status, status).toBe(409);
+      expect(res.body.error?.code ?? res.body.code, status).toBe('NOT_ENDED');
+    }
+    const ended = await makeExam({ ownerId: staff.id, status: 'ENDED' });
+    expect((await request(app).get(`/api/exams/${ended.id}/survey`).set('Cookie', staffCookie(staff.id))).status).toBe(200);
+  });
+});
+
 describe('설문과 제출·시험 잠금의 교착 방지', () => {
   it('설문 제출과 같은 응시의 submitAttempt를 동시에 반복해도 500·BUSY가 나지 않고 응답 행은 최대 1개', async () => {
     const { submitAttempt } = await import('../src/services/submission');
