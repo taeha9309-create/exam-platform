@@ -133,6 +133,7 @@ export async function startExam(examId: string, now: Date = new Date()): Promise
   notify(() => {
     for (const attempt of changed) broadcast.attemptState(attempt, exam);
     broadcast.examStarted(exam);
+    void broadcast.attemptsUpdated(exam.id, changed.map((a) => a.id));
   });
   return exam;
 }
@@ -168,6 +169,7 @@ export async function endExam(examId: string, now: Date = new Date()): Promise<E
 
   notify(() => {
     for (const attempt of changed) broadcast.attemptState(attempt, exam);
+    void broadcast.attemptsUpdated(exam.id, changed.map((a) => a.id));
   });
   return exam;
 }

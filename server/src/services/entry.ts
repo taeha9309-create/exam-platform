@@ -253,7 +253,11 @@ export async function confirmOnce(verified: Verified, token: string | undefined)
           choiceOrders: orders.choiceOrders,
         },
       });
-      post.push(() => (state === 'PENDING_APPROVAL' ? broadcast.toStaff(exam.id, 'approval:pending', { attemptId: created.id, kind: 'LATE' }) : broadcast.waitingCount(exam.id)));
+      post.push(async () => {
+        if (state === 'PENDING_APPROVAL') broadcast.toStaff(exam.id, 'approval:pending', { attemptId: created.id, kind: 'LATE' });
+        else await broadcast.waitingCount(exam.id);
+        await broadcast.attemptUpdated(created.id);
+      });
       return { kind: 'session', sessionToken, attempt: { id: created.id, ...studentAttemptView(created, exam) } };
     }
 
@@ -343,6 +347,7 @@ export async function resolveApproval(input: ApprovalInput): Promise<Attempt> {
   await notifyAll([
     () => broadcast.toStaff(exam.id, 'approval:resolved', { attemptId: updated.id, kind: isEntry ? 'LATE' : 'DUPLICATE', approved }),
     ...(isEntry ? [() => broadcast.attemptState(updated, exam), () => broadcast.waitingCount(exam.id)] : []),
+    () => broadcast.attemptUpdated(updated.id),
     // 기존 토큰은 DB에서 이미 무효다. 여기서는 기존 소켓에 session:revoked를 보내고 연결을 끊는다.
     ...(input.type === 'APPROVE_SESSION' ? [() => broadcast.revokeSession(updated.id)] : []),
   ]);
@@ -397,7 +402,7 @@ async function updateReadiness(
       if (next !== updated.state) updated = await tx.attempt.update({ where: { id: attempt.id }, data: { state: next } });
     }
     const final = updated;
-    post.push(() => broadcast.toStaff(exam.id, EV.ATTEMPT_UPDATED, { attemptId: attempt.id }));
+    post.push(() => broadcast.attemptUpdated(attempt.id));
     if (final.state !== 'WAITING') post.push(() => broadcast.attemptState(final, exam), () => broadcast.waitingCount(exam.id));
     else if (wasReady !== isReady) post.push(() => broadcast.waitingCount(exam.id));
     return studentAttemptView(final, exam);

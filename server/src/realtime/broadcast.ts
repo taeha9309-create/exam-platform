@@ -2,6 +2,7 @@ import { EV } from '@exam/shared';
 import type { Attempt, Exam } from '@prisma/client';
 import type { Server } from 'socket.io';
 import { prisma } from '../db';
+import { loadAttemptSummaries } from '../services/dashboard';
 
 // 방 이름은 서버만 만든다(클라이언트가 방 이름을 지정할 수 없다).
 export const attemptRoom = (attemptId: string) => `attempt:${attemptId}`;
@@ -64,6 +65,31 @@ export const broadcast = {
   /** 기존 이름 호환용. revokeSession과 같다. */
   sessionRevoked(attemptId: string): void {
     broadcast.revokeSession(attemptId);
+  },
+
+  /**
+   * 응시 하나의 요약을 교수자 방에만 보낸다(attempt:updated). 응시가 없으면 무시하고, 실패해도 호출자에게 던지지 않고 로그만 남긴다.
+   * 커밋이 끝난 뒤에만 호출한다(트랜잭션 안에서 부르지 않는다).
+   */
+  async attemptUpdated(attemptId: string): Promise<void> {
+    try {
+      getIo();
+      const found = await prisma.attempt.findUnique({ where: { id: attemptId }, select: { examId: true } });
+      if (!found) return;
+      await broadcast.attemptsUpdated(found.examId, [attemptId]);
+    } catch (err) {
+      console.error('attempt:updated 전송 실패', err instanceof Error ? err.message : 'unknown');
+    }
+  },
+
+  /** 같은 시험의 여러 응시를 한꺼번에 알린다(시험 시작·종료). 쿼리는 응시 수와 무관하게 상수 개이고 이벤트만 응시마다 1건이다. */
+  async attemptsUpdated(examId: string, attemptIds: string[]): Promise<void> {
+    try {
+      getIo();
+      for (const summary of await loadAttemptSummaries(examId, attemptIds)) getIo().to(staffRoom(examId)).emit(EV.ATTEMPT_UPDATED, summary);
+    } catch (err) {
+      console.error('attempt:updated 전송 실패', err instanceof Error ? err.message : 'unknown');
+    }
   },
 
   toStaff(examId: string, event: string, payload: unknown): void {

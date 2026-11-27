@@ -174,7 +174,7 @@ describe('동의(F-08)', () => {
     const staff = await staffSocket(exam.id);
     const first = once(staff, EV.ATTEMPT_UPDATED);
     await consent(token);
-    expect(await first).toEqual({ attemptId: attempt.id });
+    expect(await first).toMatchObject({ attemptId: attempt.id });
     const at = (await reload(attempt.id)).consentAt!.getTime();
     const q = quiet(staff, EV.ATTEMPT_UPDATED);
     await consent(token);
@@ -288,7 +288,7 @@ describe('준비 완료(F-10)', () => {
     expect(res.body.state).toBe('ACTIVE');
     expect(res.body.deadline).toBe(exam.endsAt!.getTime());
     expect((await gotState).state).toBe('ACTIVE');
-    expect(await gotUpdated).toEqual({ attemptId: a.attempt.id });
+    expect(await gotUpdated).toMatchObject({ attemptId: a.attempt.id });
     expect((await reload(a.attempt.id)).state).toBe('ACTIVE');
   });
 
