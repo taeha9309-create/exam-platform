@@ -170,7 +170,7 @@ export async function verifyEntry(input: EntryInput, token?: string): Promise<Ve
 
 /** 학생에게 보내는 응시 상태. 해시·비밀번호·정답은 절대 넣지 않는다. */
 export function studentAttemptView(attempt: Attempt, exam: Pick<Exam, 'endsAt'>) {
-  return { ...attemptStatePayload(attempt, exam), needs: { consent: attempt.consentAt === null, env: attempt.envCheckedAt === null } };
+  return { ...attemptStatePayload(attempt, exam), needs: { consent: attempt.consentAt === null, env: attempt.envCheckedAt === null }, surveyDone: attempt.surveyDone };
 }
 
 // ───────────────────────── confirm ─────────────────────────

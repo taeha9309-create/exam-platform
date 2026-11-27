@@ -336,11 +336,12 @@ export const t = {
     TOO_LONG: '답안이 허용된 길이를 넘었습니다.',
     INVALID: '입력한 내용이 올바르지 않습니다.',
     ALREADY_SUBMITTED: '이미 제출되었습니다.',
-    // 서버가 쓰지만 shared ERROR_CODES에는 아직 없는 코드(서버 routes/student.ts, services/entry.ts)
     ENTRY_REJECTED: '입장이 거절되었습니다. 감독관에게 문의해 주세요.',
     APPROVAL_ALREADY_PENDING: '이미 승인 대기 중인 접속이 있습니다. 감독관에게 알려 주세요.',
     ATTEMPT_FINISHED: '이미 종료된 응시입니다.',
     INVALID_STATE: '현재 상태에서는 처리할 수 없는 요청입니다. 화면을 새로고침해 주세요.',
+    NOT_ESSAY: '서술형 문항에만 점수와 피드백을 입력할 수 있습니다.',
+    NOT_SUBMITTED: '제출이 끝난 응시에서만 할 수 있는 동작입니다.',
   },
 } as const;
 

@@ -113,6 +113,12 @@ export const ERROR_CODES = [
   'TOO_LONG',
   'INVALID',
   'ALREADY_SUBMITTED',
+  'ENTRY_REJECTED',
+  'APPROVAL_ALREADY_PENDING',
+  'ATTEMPT_FINISHED',
+  'INVALID_STATE',
+  'NOT_ESSAY',
+  'NOT_SUBMITTED',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
