@@ -48,6 +48,8 @@ npm run dev            # 서버(3000) + 화면(5173) 동시 실행 → http://lo
 | `npm run typecheck` | 모든 작업 공간의 타입 검사 |
 | `npm run build` | 화면(`client/dist`)과 서버(`server/dist`) 빌드 |
 | `npm run db:down` | PostgreSQL 종료 |
+| `npm run demo:reset` | 평가자 시연용 데모 교수자·시험·명단 재생성(`DEMO_STAFF_PASSWORD` 필요, 자세한 내용은 [docs/DEMO.md](docs/DEMO.md)) |
+| `npm run e2e` | 핵심 흐름 E2E(Playwright, 수동 실행, 방법은 docs/DEMO.md 3장) |
 
 개발 중에는 화면 개발 서버가 `/api`, `/socket.io` 요청을 서버(3000)로 넘긴다. 운영에서는 서버가 빌드된 화면을 같은 주소로 제공한다. 이 프록시는 Host를 5173으로 유지해(`changeOrigin: false`) 서버의 Origin 검사를 통과한다. 다른 출처로 화면을 열 때만 `.env`의 `ALLOWED_ORIGINS`를 설정한다.
 
