@@ -135,6 +135,14 @@ export type ApprovalAction = 'APPROVE_ENTRY' | 'REJECT_ENTRY' | 'APPROVE_SESSION
 export const resolveApproval = (attemptId: string, type: ApprovalAction, reason: string) =>
   api<{ attempt: { id: string; state: string } }>('POST', `/api/attempts/${attemptId}/actions`, { type, reason });
 
+// --- 감독관 조치 (F-16, 서버 Task 3 계약). ACK만 사유가 필요 없다.
+export type ProctorActionBody = {
+  type: 'WARN' | 'PAUSE' | 'RESUME' | 'TERMINATE' | 'ADD_TIME' | 'ACK';
+  reason?: string;
+  payload?: { minutes?: number; addPausedTime?: boolean };
+};
+export const postAction = (attemptId: string, body: ProctorActionBody) => api<{ attempt: { id: string; state: string } }>('POST', `/api/attempts/${attemptId}/actions`, body);
+
 // --- 결과·설문 (F-17, F-18): 서버 Task 12 계약. 서버 구현 전에는 404가 돌아올 수 있다.
 export interface ResultsResponse {
   questions: { id: string; type: QuestionType; points: number; position: number }[];

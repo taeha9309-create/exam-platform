@@ -165,6 +165,46 @@ describe('운영 화면', () => {
     expect(screen.queryByText(t.staff.run.kindLate)).toBeNull();
   });
 
+  it('스냅샷의 승인 요청은 학번·이름으로 표시되고 입장 현황은 스냅샷 초기값을 쓴다(#54)', async () => {
+    renderPage(makeExam({ status: 'RUNNING', questions: [Q], rosterCount: 5, endsAt: new Date(Date.now() + 600_000).toISOString() }));
+    await screen.findByRole('button', { name: t.staff.run.end });
+    expect(screen.getByText(t.staff.run.waitingCount('-', 5))).toBeTruthy();
+    emitServer('dashboard:snapshot', {
+      exam: { id: makeExam().id, title: 't', status: 'RUNNING', endsAt: null, lockNewEntry: false, serverNow: 0, ready: 3, total: 5 },
+      attempts: [],
+      pendingApprovals: [{ attemptId: 'att-1', kind: 'LATE', studentNo: '20240001', name: '홍길동' }],
+      networkIncident: null,
+    });
+    expect(screen.getByText(t.staff.run.waitingCount(3, 5))).toBeTruthy();
+    const li = screen.getByText(t.staff.run.kindLate).closest('li')!;
+    expect(within(li).getByText('20240001 홍길동')).toBeTruthy();
+    // 사유 기본값이 입력란에 채워져 보인다
+    expect((within(li).getByLabelText(t.staff.run.reason) as HTMLInputElement).value).toBe(t.staff.run.reasonQuick);
+  });
+
+  it('이미 처리된 승인 요청(409)은 오류를 보이고 목록에서 지운다', async () => {
+    vi.mocked(staffApi.resolveApproval).mockRejectedValue(new ApiError(409, 'INVALID_STATE'));
+    renderPage(makeExam({ status: 'RUNNING', questions: [Q], rosterCount: 5, endsAt: new Date(Date.now() + 600_000).toISOString() }));
+    await screen.findByRole('button', { name: t.staff.run.end });
+    emitServer('approval:pending', { attemptId: 'att-1', kind: 'LATE' });
+    fireEvent.click(within(screen.getByText(t.staff.run.kindLate).closest('li')!).getByRole('button', { name: t.staff.run.approve }));
+    await waitFor(() => expect(screen.queryByText(t.staff.run.kindLate)).toBeNull());
+    expect((await screen.findByRole('alert')).textContent).toBe(t.staff.dash.resolvedGone);
+  });
+
+  it('승인 409 BUSY(일시적 충돌)는 항목을 남기고 다시 시도 안내만 보이며, 다시 눌러 성공하면 사라진다', async () => {
+    vi.mocked(staffApi.resolveApproval).mockRejectedValueOnce(new ApiError(409, 'BUSY')).mockResolvedValueOnce({ attempt: { id: 'att-1', state: 'WAITING' } });
+    renderPage(makeExam({ status: 'RUNNING', questions: [Q], rosterCount: 5, endsAt: new Date(Date.now() + 600_000).toISOString() }));
+    await screen.findByRole('button', { name: t.staff.run.end });
+    emitServer('approval:pending', { attemptId: 'att-1', kind: 'LATE' });
+    const approve = () => within(screen.getByText(t.staff.run.kindLate).closest('li')!).getByRole('button', { name: t.staff.run.approve });
+    fireEvent.click(approve());
+    expect((await screen.findByRole('alert')).textContent).toBe(t.errors.BUSY);
+    expect(screen.getByText(t.staff.run.kindLate)).toBeTruthy();
+    fireEvent.click(approve());
+    await waitFor(() => expect(screen.queryByText(t.staff.run.kindLate)).toBeNull());
+  });
+
   it('요청 중에는 버튼이 비활성이고, 409 BUSY는 다시 시도 안내 문구로 표시된다', async () => {
     const ready = makeExam({ questions: [Q], rosterCount: 3 });
     let reject!: (e: unknown) => void;
