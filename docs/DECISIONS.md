@@ -32,6 +32,7 @@
 | D-025 | 2026-11-26 | **배포에 Railway 설정 파일(`railway.json`)을 쓰지 않고** 서비스 설정(Build·Start·Pre-deploy 명령) + 루트 `package.json` 표준 스크립트로 구성 → ADR-012 | 계획서: `railway.json` 생성 | 공식 문서 원문 확인: Config as Code는 폐지되어 2026-12-01에 읽기가 중단되고 새 서비스는 쓸 수 없음(마감은 그 이후) | ADR-012, 계획 1 Task 17a, PR #35 |
 | D-026 | 2026-11-26 | **병렬 Operator는 각자 전용 테스트 DB**(`exam_<작업>_test`)를 쓴다 | 모든 작업이 `exam_test` 공유 | 같은 DB를 동시에 쓰면 서로의 테이블을 비워 테스트가 무작위로 실패. `TEST_DATABASE_URL` 환경변수로 지정(이름은 `_test`로 끝나야 함, 개발 DB 보호 장치 유지) | ADR-003, README |
 | D-027 | 2026-11-26 | **로그인 시도 제한은 IP·IP+이메일 조합 기준**이고 계정 자체를 잠그지 않는다 + 동시 bcrypt 상한 | (미정) / 계정 N회 실패 시 잠금 | Opus 보안 리뷰(M-1): 동시 20건 로그인으로 이벤트 루프 최대 758ms 지연(인증 없이 가능한 DoS). 계정 잠금은 공격자가 시험 당일 교수자를 잠가 버리는 DoS가 되므로 피함 | 이슈 #36 |
+| D-028 | 2026-11-27 | **배포 플랫폼을 Railway에서 Render 무료로 변경**(웹 서비스 1 + PostgreSQL 1, 같은 도메인 서빙은 유지). D-017의 호스팅 부분을 대체 → ADR-013 | D-017: Railway 유료(월 5달러 안팎) / Railway 무료 플랜 / Vercel | 사용자 요청: 무료로 배포. Vercel은 서버리스라 상시 구동을 전제한 구조(1초 마감 점검, 메모리 제한기, 소켓 연결 상태)와 맞지 않아 제외. Render 무료는 상시 구동 Node 서비스와 PostgreSQL을 제공하되 잠듦·DB 30일 만료·Pre-deploy 불가라는 제약이 있어 설계에 반영 | ADR-013, SPEC 1, 계획 1 Task 17b |
 
 ---
 
@@ -122,8 +123,16 @@
 - 승인: 사용자(2026-11-25, 하네스 추가 요구사항)
 
 ## ADR-012 배포: Railway 설정 파일 없이 서비스 설정 + 표준 스크립트
+- **부분 대체됨: ADR-013**(호스팅이 Render로 변경되어 Railway·Pre-deploy 부분은 더 이상 쓰지 않는다. "설정 파일 없이 대시보드 설정 + 표준 스크립트" 방침은 유지).
 - 배경: 계획서는 `railway.json`으로 빌드·시작 명령을 정하기로 했다. 조사 중 Railway의 Config as Code(`railway.json`/`railway.toml`)가 폐지됨을 발견했다. 공식 문서 원문: "Existing Config as Code files stop being read on 2026-12-01 (hard cutoff)", "New services cannot opt into Config as Code". 이 프로젝트의 마감(12/07~12/14)은 그 이후다.
 - 결정: 설정 파일을 만들지 않는다. Railway 서비스 설정(대시보드)에서 Build `npm run build`, Start `npm start`, **Pre-deploy Command `npm run db:deploy -w @exam/server`**를 지정하고, 루트 `package.json`의 표준 스크립트(`build`, `start`)와 `.node-version`을 쓴다. 변수는 `DATABASE_URL`(`${{Postgres.DATABASE_URL}}` 참조), `JWT_SECRET`, `NODE_ENV=production`. 절차는 README "배포 (Railway)".
 - 대안: `railway.json`(2026-12-01 이후 무효, 새 서비스는 불가), Infrastructure as Code(`.railway/railway.ts`, 이 규모에는 과함), 시작 명령에 마이그레이션 포함(실패 시 배포가 멈추지 않고 앱이 죽은 채 재시작 반복).
 - 결과: 설정이 코드로 버전 관리되지 않아(대시보드에만 존재) README 절차에 의존한다. 대신 마이그레이션이 **새 버전이 뜨기 전에 실행되고 실패하면 배포가 중단**된다(Pre-deploy). 폐지 일정과 무관하게 동작한다.
 - 승인: 사용자(2026-11-26, PR #35 병합). 이 기록은 PR #35에서 보호 파일 변경을 피하려고 후속 문서 PR로 미뤘다.
+
+## ADR-013 배포 플랫폼: Railway에서 Render 무료로 변경
+- 배경: 사용자가 유료 호스팅 없이 배포하기를 원했다(2026-11-27). 후보를 공식 문서로 확인했다. Railway: 월 5달러(Hobby)가 안정적이고, 무료 플랜은 월 1달러 사용량·유휴 시 잠듦·문서 간 설명이 달라 불확실. Vercel: 서버리스 함수 기반이라 이 프로젝트의 상시 구동 전제(1초 주기 마감 점검 `setInterval`, 메모리 기반 로그인·입장 제한기, 소켓 연결 상태)와 맞지 않아 구조를 다시 짜야 한다(코드 구조에 근거한 판단이며 Vercel 문서는 WebSocket을 공개 베타로 지원하나 연결이 함수 최대 실행 시간에 끊긴다고 명시). Render: 상시 구동 Node 웹 서비스와 PostgreSQL을 무료로 제공.
+- 결정: Render 무료 웹 서비스 1개 + Render 무료 PostgreSQL 1개(같은 리전, 내부 주소로 연결), 같은 도메인 서빙 유지. 설정 파일(`render.yaml`)은 만들지 않고 대시보드 설정 + 루트 `package.json` 표준 스크립트(ADR-012의 방침 유지). Build `npm ci && npm run build`, **Start `npm run db:deploy -w @exam/server && npm start`**(무료 인스턴스는 Pre-deploy Command를 쓸 수 없으므로 마이그레이션을 시작 명령 앞에 둔다. 적용할 마이그레이션이 없으면 바로 끝난다), Health Check `/api/health`, 변수 `DATABASE_URL`(Internal URL)·`JWT_SECRET`·`NODE_ENV=production`, 선택 `TRUST_PROXY_HOPS`(1~3, 기본 1).
+- 대안: Railway 유료(안정적이나 월 비용), Railway 무료 플랜(조건 불확실), Vercel(서버리스 구조와 불일치), 다른 무료 호스팅(조사하지 않음).
+- 결과: 비용 0원, 설정 변경이 작다(코드 변경은 프록시 홉 수 환경변수뿐). 대신 제약이 생긴다. (1) **15분간 트래픽이 없으면 잠들고** 다음 접속 때 약 1분에 걸쳐 깨어난다(시험 중에는 소켓 메시지가 오가 유지) → 시연·평가 전에 주소를 한 번 열어 깨운다. (2) **무료 DB는 생성 30일 뒤 만료**(14일 유예 뒤 삭제), 백업 없음, 1GB → DB를 제출 시점에 맞춰 만들고 만료 전 새 DB에 `demo:reset`으로 데이터를 다시 넣는다. (3) 시작 때마다 마이그레이션이 실행되고 실패하면 서비스가 시작되지 않는다. (4) Render 프록시는 `X-Forwarded-For`를 덮어쓰지 않고 덧붙인다는 보고가 있고 홉 수는 공식 문서에서 확인하지 못했다 → 배포 후 로그인 시도 제한으로 검증하고 `TRUST_PROXY_HOPS`로 조정.
+- 승인: 사용자(2026-11-27, "Render로 하자"). 보호 문서 변경이므로 PR의 `문서변경-승인` 라벨은 사용자가 직접 붙인다.
