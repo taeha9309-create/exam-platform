@@ -1,18 +1,12 @@
-import { EV } from '@exam/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { t } from '../../copy/ko';
-import { connectStaffSocket } from '../../socket';
+import { ApiError } from '../../api';
+import { DashboardCards, NetworkIncidentBanner } from './dashboard/DashboardCards';
+import { useDashboard, type PendingApproval } from './dashboard/useDashboard';
 import { endExam, getExam, openExam, patchExam, regeneratePasscode, resolveApproval, startExam, type ApprovalAction, type ExamDetail } from './staffApi';
 import { ConfirmDialog, Dialog, ErrorAlert, PageShell, useBusy, useStaffError } from './staffUi';
 import styles from './staff.module.css';
-
-type ApprovalKind = 'LATE' | 'DUPLICATE';
-interface PendingApproval {
-  attemptId: string;
-  kind: ApprovalKind;
-}
-const isKind = (k: unknown): k is ApprovalKind => k === 'LATE' || k === 'DUPLICATE';
 
 function formatRemaining(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));
@@ -26,7 +20,7 @@ function formatRemaining(ms: number): string {
 /** 입장 열기 조건(F-06): 문항 1개 이상, 명단 1명 이상 */
 const openBlocked = (e: ExamDetail) => e.questions.length === 0 || e.rosterCount === 0;
 
-/** 운영 화면. 계획 2에서 대시보드(S-04)로 확장할 자리. */
+/** 운영 화면 + 감독 대시보드(S-04): 위쪽은 시험 진행, 아래쪽은 학생 카드. */
 export function ExamRunPage() {
   const { id = '' } = useParams();
   const toText = useStaffError();
@@ -35,10 +29,6 @@ export function ExamRunPage() {
   const [confirm, setConfirm] = useState<'end' | 'reissue' | null>(null);
   const [showPasscode, setShowPasscode] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  const [ready, setReady] = useState<number | null>(null);
-  const [total, setTotal] = useState<number | null>(null);
-  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
-  const [socketDown, setSocketDown] = useState(false);
   const { busy, run } = useBusy();
 
   useEffect(() => {
@@ -57,50 +47,9 @@ export function ExamRunPage() {
     return () => clearInterval(timer);
   }, []);
 
-  // 실시간: 입장 현황(waiting:count)과 승인 요청. 상태의 원본은 서버이며 화면은 이벤트로만 갱신한다.
-  useEffect(() => {
-    const socket = connectStaffSocket();
-    const addApprovals = (items: unknown) => {
-      if (!Array.isArray(items)) return;
-      setApprovals((cur) => {
-        const next = [...cur];
-        for (const it of items) {
-          const a = it as { attemptId?: unknown; kind?: unknown };
-          if (typeof a?.attemptId === 'string' && isKind(a.kind) && !next.some((x) => x.attemptId === a.attemptId)) next.push({ attemptId: a.attemptId, kind: a.kind });
-        }
-        return next;
-      });
-    };
-    const join = () => {
-      setSocketDown(false);
-      socket.emit(EV.DASHBOARD_JOIN, { examId: id }, (res: unknown) => {
-        // 서버가 스냅샷을 돌려주면(계획 2) 승인 대기 목록을 채운다. 지금은 { ok } 정도만 온다.
-        const snap = res as { pendingApprovals?: unknown; waiting?: { ready?: unknown; total?: unknown } } | undefined;
-        addApprovals(snap?.pendingApprovals);
-        if (typeof snap?.waiting?.ready === 'number') setReady(snap.waiting.ready);
-        if (typeof snap?.waiting?.total === 'number') setTotal(snap.waiting.total);
-      });
-    };
-    socket.on('connect', join);
-    socket.on('disconnect', () => setSocketDown(true));
-    socket.on('connect_error', () => setSocketDown(true));
-    socket.on(EV.DASHBOARD_SNAPSHOT, (snap: unknown) => addApprovals((snap as { pendingApprovals?: unknown })?.pendingApprovals));
-    socket.on(EV.WAITING_COUNT, (p: unknown) => {
-      const c = p as { ready?: unknown; total?: unknown };
-      if (typeof c?.ready === 'number') setReady(c.ready);
-      if (typeof c?.total === 'number') setTotal(c.total);
-    });
-    socket.on(EV.APPROVAL_PENDING, (p: unknown) => addApprovals([p]));
-    socket.on(EV.APPROVAL_RESOLVED, (p: unknown) => {
-      const attemptId = (p as { attemptId?: unknown })?.attemptId;
-      setApprovals((cur) => cur.filter((x) => x.attemptId !== attemptId));
-    });
-    if (socket.connected) join();
-    return () => {
-      socket.off();
-      socket.disconnect();
-    };
-  }, [id]);
+  // 실시간 상태(입장 현황·승인 요청·학생 카드)는 useDashboard가 소켓 하나로 받는다. 화면은 스냅샷+이벤트로만 갱신한다.
+  const dash = useDashboard(id);
+  const { ready, total, socketDown, pendingApprovals: approvals } = dash;
 
   const act = useCallback(
     (key: string, fn: () => Promise<void>) => {
@@ -153,13 +102,24 @@ export function ExamRunPage() {
   const onResolve = (a: PendingApproval, approve: boolean, reason: string) =>
     act(`approval-${a.attemptId}`, async () => {
       const type: ApprovalAction = a.kind === 'LATE' ? (approve ? 'APPROVE_ENTRY' : 'REJECT_ENTRY') : approve ? 'APPROVE_SESSION' : 'REJECT_SESSION';
-      await resolveApproval(a.attemptId, type, reason);
-      setApprovals((cur) => cur.filter((x) => x.attemptId !== a.attemptId));
+      try {
+        await resolveApproval(a.attemptId, type, reason);
+        dash.removeApproval(a.attemptId);
+      } catch (err) {
+        // 이미 처리됨(INVALID_STATE)이면 목록에서 지운다. BUSY는 일시적 충돌이라 항목을 남기고 다시 시도 안내만 보인다.
+        if (err instanceof ApiError && err.status === 409 && err.code === 'INVALID_STATE') {
+          dash.removeApproval(a.attemptId);
+          setError(t.staff.dash.resolvedGone);
+          return;
+        }
+        throw err;
+      }
     });
 
   return (
     <PageShell title={t.pages.staffRun}>
       <h2>{exam.title}</h2>
+      <NetworkIncidentBanner incident={dash.networkIncident} />
       <ErrorAlert message={error} />
       {socketDown ? <p role="status" className={styles.hint}>{t.staff.run.socketDown}</p> : null}
 
@@ -244,6 +204,8 @@ export function ExamRunPage() {
         </section>
       ) : null}
 
+      {exam.status !== 'DRAFT' ? <DashboardCards dash={dash} /> : null}
+
       {confirm === 'end' ? <ConfirmDialog title={t.staff.run.endConfirmTitle} body={t.staff.run.endConfirmBody} busy={disabled} onConfirm={onEnd} onCancel={() => setConfirm(null)} /> : null}
       {confirm === 'reissue' ? <ConfirmDialog title={t.staff.run.reissueConfirmTitle} body={t.staff.run.reissueConfirmBody} busy={disabled} onConfirm={onReissue} onCancel={() => setConfirm(null)} /> : null}
 
@@ -269,9 +231,12 @@ function ApprovalItem({ approval, disabled, onResolve }: { approval: PendingAppr
   return (
     <li className={styles.row}>
       <strong>{approval.kind === 'LATE' ? t.staff.run.kindLate : t.staff.run.kindDuplicate}</strong>
-      <span className={styles.hint}>{t.staff.run.attemptLabel(approval.attemptId.slice(0, 8))}</span>
+      <span>{approval.studentNo !== null ? `${approval.studentNo} ${approval.name ?? ''}`.trim() : t.staff.run.attemptLabel(approval.attemptId.slice(0, 8))}</span>
       <label htmlFor={inputId}>{t.staff.run.reason}</label>
-      <input id={inputId} value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} />
+      <input id={inputId} value={reason} maxLength={500} aria-describedby={`${inputId}-hint`} onChange={(e) => setReason(e.target.value)} />
+      <span id={`${inputId}-hint`} className={styles.hint}>
+        {t.staff.dash.approvalReasonHint}
+      </span>
       <button type="button" onClick={() => setReason(t.staff.run.reasonQuick)}>
         {t.staff.run.reasonQuick}
       </button>
