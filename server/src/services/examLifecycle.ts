@@ -4,6 +4,7 @@ import { generatePasscode } from '../domain/codes';
 import { nextState } from '../domain/attemptMachine';
 import { AppError } from '../errors';
 import { broadcast, getIo } from '../realtime/broadcast';
+import { submitInTx } from './submission';
 
 /**
  * 시험 상태를 바꾸는 서비스(F-06)와, 시험 행 잠금 트랜잭션 도구.
@@ -55,7 +56,7 @@ export async function lockExam(tx: Tx, id: string): Promise<{ status: ExamStatus
  * 커밋이 끝난 뒤에 실시간 알림을 보낸다. Socket.IO가 아직 없으면(테스트 등) 건너뛰고,
  * 알림 실패가 이미 확정된 상태 변경을 실패로 만들지 않도록 오류는 로그만 남긴다.
  */
-function notify(send: () => void): void {
+export function notify(send: () => void): void {
   try {
     getIo();
   } catch {
@@ -137,7 +138,7 @@ export async function startExam(examId: string, now: Date = new Date()): Promise
 }
 
 /**
- * 시험 종료: RUNNING → ENDED. 종착 전 응시는 EXAM_END로 전이한다(제출 시각·사유 기록, 채점은 Task 11에서 추가).
+ * 시험 종료: RUNNING → ENDED. 종착 전 응시는 submitInTx(EXAM_END)로 제출·채점한다(submission.ts와 순환 import지만 함수 호출 시점에만 쓴다).
  * PENDING_APPROVAL은 REJECTED가 되며 제출 사유는 없다.
  */
 export async function endExam(examId: string, now: Date = new Date()): Promise<Exam> {
@@ -146,17 +147,21 @@ export async function endExam(examId: string, now: Date = new Date()): Promise<E
     if (status !== 'RUNNING') throw INVALID_TRANSITION('진행 중인 시험만 종료할 수 있습니다.');
     const exam = await tx.exam.update({ where: { id: examId }, data: { status: 'ENDED', endedAt: now } });
 
-    const open = await tx.attempt.findMany({ where: { examId, state: { in: ['WAITING', 'PENDING_APPROVAL', 'ACTIVE', 'PAUSED'] } } });
+    const open = await tx.attempt.findMany({
+      where: { examId, state: { in: ['WAITING', 'PENDING_APPROVAL', 'ACTIVE', 'PAUSED'] } },
+      select: { id: true, state: true },
+    });
     const changed: Attempt[] = [];
-    for (const attempt of open) {
-      const next = nextState(attempt.state, 'EXAM_END', { ready: isReady(attempt), examRunning: false });
-      const submitted = next === 'SUBMITTED';
-      changed.push(
-        await tx.attempt.update({
-          where: { id: attempt.id },
-          data: { state: next, ...(submitted ? { submittedAt: now, submitReason: 'EXAM_ENDED' as const } : {}) },
-        }),
-      );
+    for (const { id, state } of open) {
+      if (state === 'PENDING_APPROVAL') {
+        // 승인 대기 중이던 입장 요청은 거절된다(제출이 아니므로 제출 시각·사유 없음).
+        const next = nextState(state, 'EXAM_END', { ready: false, examRunning: false });
+        changed.push(await tx.attempt.update({ where: { id }, data: { state: next } }));
+        continue;
+      }
+      // 나머지는 학생 제출·마감과 같은 로직(채점 포함)을 이 시험 잠금 트랜잭션 안에서 쓴다. 종료 중에는 저장이 끼어들 수 없다.
+      const result = await submitInTx(tx, id, 'EXAM_ENDED', now);
+      if (result.changed) changed.push(result.attempt);
     }
     return { exam, changed };
   });

@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app';
 import { parsePort } from './config';
+import { startDeadlineTicker } from './jobs/deadlineTicker';
 import { attachSocket } from './realtime/socket';
 
 let port: number;
@@ -31,13 +32,17 @@ try {
 const httpServer = createServer(app);
 const io = attachSocket(httpServer);
 
+// 마감 티커: 1초마다 마감이 지난 응시를 제출하고 끝난 시험을 종료한다(겹침 방지·예외 격리는 startDeadlineTicker).
+const ticker = startDeadlineTicker();
+
 httpServer.listen(port, () => {
   console.log(`서버 시작: http://localhost:${port}`);
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
+    // 티커를 멈추고(진행 중인 틱은 끝나기를 기다린다) io.close()로 소켓과 http 서버를 닫는다.
     // io.close()는 소켓 연결을 모두 끊고 http 서버도 닫는다(소켓이 열려 있으면 httpServer.close만으로는 끝나지 않는다).
-    void io.close(() => process.exit(0));
+    void ticker.stop().finally(() => void io.close(() => process.exit(0)));
   });
 }
