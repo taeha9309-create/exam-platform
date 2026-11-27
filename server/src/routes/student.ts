@@ -4,6 +4,7 @@ import { findAttemptByToken } from '../auth/studentSession';
 import { prisma } from '../db';
 import { attemptDeadline } from '../domain/deadline';
 import { AppError } from '../errors';
+import { lockExam, runExamTx } from '../services/examLifecycle';
 import { submitAttempt } from '../services/submission';
 import { confirmEntry, createEntryGuard, recordConsent, recordEnv, studentAttemptView, verifyEntry, type EntryGuardOptions } from '../services/entry';
 import { safeString } from '../validation';
@@ -19,6 +20,12 @@ const entrySchema = z.object({
   passcode: safeString({ min: 1, max: 64 }),
 });
 const confirmSchema = entrySchema.extend({ sessionToken: safeString({ min: 0, max: MAX_TOKEN_LENGTH }).optional() });
+
+/** 설문: 난이도 1~5 정수, 의견 ≤1000자(줄바꿈 허용). 둘 다 선택이며 추가 필드(응시 ID 등)는 거부한다. */
+const surveySchema = z.strictObject({
+  difficulty: z.number().int().min(1).max(5).optional(),
+  comment: safeString({ min: 0, max: 1000, allowNewlines: true }).optional(),
+});
 
 const consentSchema = z.strictObject({ agree: z.boolean() });
 const envSchema = z.strictObject({ browser: z.enum(['chrome', 'edge']), isExtended: z.boolean(), fullscreen: z.literal(true) });
@@ -197,6 +204,40 @@ export function createStudentRouter(options: StudentRouterOptions = {}): Router 
       }
       const done = await submitAttempt(attempt.id, 'STUDENT');
       res.json({ state: done.state, submittedAt: done.submittedAt });
+    }),
+  );
+
+  // 종료 설문(F-18). 응시는 본문이 아니라 인증된 세션으로만 정한다.
+  // SurveyResponse에는 응시·학번·시각을 남기지 않고(익명, D-015), 중복 방지는 Attempt.surveyDone으로만 한다.
+  // 응시 행을 잠근 한 트랜잭션에서 확인·저장·표시를 하므로 동시 이중 제출에도 응답 행은 1개다.
+  router.post(
+    '/student/survey',
+    requireStudent,
+    wrap(async (req, res) => {
+      const parsed = surveySchema.safeParse(req.body);
+      if (!parsed.success) throw INVALID_INPUT();
+      const attempt = req.studentAttempt!;
+      const comment = parsed.data.comment?.trim() ?? '';
+      const difficulty = parsed.data.difficulty ?? null;
+
+      await runExamTx(async (tx) => {
+        // 잠금 순서는 항상 시험 → 응시(submitAttempt·조치와 같다). 응답 INSERT의 외래키 검사가 시험 행에 KEY SHARE를 걸므로,
+        // 응시 행만 먼저 잠그면 시험 행을 먼저 잠그는 쪽과 교착(40P01)이 난다.
+        await lockExam(tx, attempt.examId);
+        const rows = await tx.$queryRaw<{ state: string; surveyDone: boolean; sessionTokenHash: string }[]>`
+          SELECT "state", "surveyDone", "sessionTokenHash" FROM "Attempt" WHERE "id" = ${attempt.id} FOR UPDATE`;
+        const cur = rows[0];
+        // 인증 뒤 세션이 폐기·재발급됐다면 이 토큰은 더 이상 유효하지 않다.
+        if (!cur || cur.sessionTokenHash !== attempt.sessionTokenHash) throw UNAUTHORIZED();
+        if (cur.state !== 'SUBMITTED' && cur.state !== 'TERMINATED') throw new AppError(409, 'NOT_SUBMITTED', '제출이 끝난 뒤에만 설문에 응답할 수 있습니다.');
+        if (cur.surveyDone) throw new AppError(409, 'ALREADY_SUBMITTED', '이미 설문에 응답했습니다.');
+        // 둘 다 비어 있으면(건너뛰기) 응답 행을 만들지 않는다.
+        if (difficulty !== null || comment !== '') {
+          await tx.surveyResponse.create({ data: { examId: attempt.examId, difficulty, comment: comment === '' ? null : comment } });
+        }
+        await tx.attempt.update({ where: { id: attempt.id }, data: { surveyDone: true } });
+      });
+      res.json({ ok: true });
     }),
   );
 
