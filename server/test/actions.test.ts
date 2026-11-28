@@ -3,7 +3,7 @@ import express, { type Express } from 'express';
 import type { Attempt, Exam } from '@prisma/client';
 import type { Server } from 'socket.io';
 import request from 'supertest';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { onError } from '../src/app';
 import { generateToken, hashToken } from '../src/auth/studentSession';
 import { prisma } from '../src/db';
@@ -30,6 +30,15 @@ function installFakeIo(): void {
   });
   setIo({ to: (r: string) => make([r]), in: (r: string) => make([r]) } as unknown as Server);
 }
+
+/** 조치 뒤 비동기로 가는 attempt:updated가 다음 테스트의 emitted에 섞이지 않게, 이벤트가 더 안 늘 때까지 기다린다. */
+afterEach(async () => {
+  let n = -1;
+  while (n !== emitted.length) {
+    n = emitted.length;
+    await new Promise((r) => setTimeout(r, 40));
+  }
+});
 
 beforeEach(async () => {
   await resetDb();
@@ -109,6 +118,15 @@ describe('F-16 기록 (a)', () => {
     const f = await fixture();
     await act(f.attempt.id, { type: 'PAUSE', reason: '확인', staffId: other.id });
     expect((await recorded(f.attempt.id))[0]!.staffId).toBe(staffId);
+  });
+
+  it('성공한 조치는 교수자 방에 attempt:updated(요약)를 보낸다', async () => {
+    const f = await fixture();
+    expect((await act(f.attempt.id, { type: 'PAUSE', reason: '확인' })).status).toBe(200);
+    for (let i = 0; i < 50 && events('attempt:updated').length === 0; i++) await new Promise((r) => setTimeout(r, 20));
+    const updated = events('attempt:updated');
+    expect(updated).toHaveLength(1);
+    expect(updated[0]).toMatchObject({ room: `exam:${f.exam.id}:staff`, payload: { attemptId: f.attempt.id, state: 'PAUSED' } });
   });
 
   it('다른 교수자의 시험 응시에도 조치할 수 있다(D-016)', async () => {

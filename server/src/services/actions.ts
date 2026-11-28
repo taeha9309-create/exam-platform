@@ -4,6 +4,7 @@ import { prisma } from '../db';
 import { InvalidTransitionError, nextState } from '../domain/attemptMachine';
 import { AppError } from '../errors';
 import { attemptDeadline, broadcast } from '../realtime/broadcast';
+import { loadAttemptSummaries } from './dashboard';
 import { lockExam, notify, runExamTx } from './examLifecycle';
 import { gradeMcqAnswers } from './submission';
 
@@ -51,37 +52,11 @@ function pausedMinutes(pausedAt: Date, now: Date): number {
   return Math.max(1, Math.min(60, Math.ceil((now.getTime() - pausedAt.getTime()) / 60_000)));
 }
 
-type SummaryAttempt = Attempt & { exam: Pick<Exam, 'endsAt'>; rosterEntry: Pick<RosterEntry, 'studentNo' | 'name'> };
-
-/**
- * 감독 대시보드 요약(shared AttemptSummary). 비밀 값(세션 토큰 해시·비밀번호·정답)은 필드 자체가 없다.
- * 계획 2 Task 4의 스냅샷 빌더와 같은 형태이며, 그쪽이 병합되면 하나로 합친다.
- */
-export async function buildAttemptSummary(db: Tx | typeof prisma, a: SummaryAttempt): Promise<AttemptSummary> {
-  const [last, lastLeave, lastPause] = await Promise.all([
-    db.signal.findFirst({ where: { attemptId: a.id }, orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }], select: { type: true, severity: true, receivedAt: true } }),
-    db.signal.findFirst({ where: { attemptId: a.id, type: { in: ['LEAVE_START', 'LEAVE'] } }, orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }], select: { type: true } }),
-    a.state === 'PAUSED'
-      ? db.proctorAction.findFirst({ where: { attemptId: a.id, type: { in: ['PAUSE', 'AUTO_PAUSE'] } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { type: true } })
-      : Promise.resolve(null),
-  ]);
-  return {
-    attemptId: a.id,
-    studentNo: a.rosterEntry.studentNo,
-    name: a.rosterEntry.name,
-    state: a.state,
-    ready: a.consentAt !== null && a.envCheckedAt !== null,
-    consentDeclined: a.consentDeclined,
-    violationCount: a.violationCount,
-    unackedSeverity: a.unackedSeverity,
-    locked: a.state === 'PAUSED' && lastPause?.type === 'AUTO_PAUSE',
-    connected: a.connected,
-    away: lastLeave?.type === 'LEAVE_START',
-    extraSeconds: a.extraSeconds,
-    deadline: attemptDeadline(a, a.exam),
-    pausedAt: a.pausedAt ? a.pausedAt.getTime() : null,
-    lastSignal: last ? { type: last.type, severity: last.severity as SignalDto['severity'], receivedAt: last.receivedAt.getTime() } : null,
-  };
+/** 대시보드와 같은 요약 빌더(services/dashboard.ts)로 응시 하나의 요약을 만든다. 비밀 값은 select에 없다. */
+async function summaryOf(db: Tx | typeof prisma, examId: string, attemptId: string): Promise<AttemptSummary> {
+  const [summary] = await loadAttemptSummaries(examId, [attemptId], db);
+  if (!summary) throw NOT_FOUND();
+  return summary;
 }
 
 /**
@@ -169,7 +144,7 @@ export async function applyAction(attemptId: string, staffId: string, input: Act
     }
 
     const updated = data ? await tx.attempt.update({ where: { id: attemptId }, data, include: { exam: true, rosterEntry: true } }) : attempt;
-    return { updated, exam, summary: await buildAttemptSummary(tx, updated), warning, stateChanged };
+    return { updated, exam, summary: await summaryOf(tx, updated.examId, attemptId), warning, stateChanged };
   });
 
   // 커밋 뒤 알림. 각각 따로 감싸서 하나가 실패해도 나머지는 보내고, 어떤 실패도 이미 확정된 변경을 되돌리지 않는다.
@@ -178,7 +153,7 @@ export async function applyAction(attemptId: string, staffId: string, input: Act
     const message = out.warning;
     notify(() => broadcast.proctorWarning(attemptId, message));
   }
-  // TODO(Task 4): broadcast.attemptUpdated(attemptId) — 감독 대시보드(교수자 방)에 카드 변경분 알림
+  notify(() => void broadcast.attemptUpdated(attemptId));
   return out.summary;
 }
 
@@ -206,7 +181,7 @@ export async function getTimeline(attemptId: string): Promise<Timeline> {
   const [recentDesc, actions, summary] = await Promise.all([
     prisma.signal.findMany({ where: { attemptId }, orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }], take: TIMELINE_SIGNAL_LIMIT + 1 }),
     prisma.proctorAction.findMany({ where: { attemptId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { staff: { select: { name: true } } } }),
-    buildAttemptSummary(prisma, attempt),
+    summaryOf(prisma, attempt.examId, attemptId),
   ]);
   const truncated = recentDesc.length > TIMELINE_SIGNAL_LIMIT;
   const signals: SignalDto[] = recentDesc
