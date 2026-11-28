@@ -1,0 +1,112 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:19:26.268Z",
+  "scenario": "fp-permission-popup",
+  "trial": 4,
+  "entries": [
+    {
+      "t": 221893.6,
+      "wall": 1795864766268,
+      "kind": "start",
+      "detail": {
+        "browser": "Google Chrome 158",
+        "scenario": "fp-permission-popup",
+        "trial": 4
+      }
+    },
+    {
+      "t": 221893.6,
+      "wall": 1795864766268,
+      "kind": "screen",
+      "detail": {
+        "isExtended": false,
+        "source": "start"
+      }
+    },
+    {
+      "t": 230111.9,
+      "wall": 1795864774487,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 957,
+        "y": -2
+      }
+    },
+    {
+      "t": 230111.9,
+      "wall": 1795864774487,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 957,
+        "y": -2
+      }
+    },
+    {
+      "t": 230253,
+      "wall": 1795864774628,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 141
+      }
+    },
+    {
+      "t": 231892,
+      "wall": 1795864776267,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 950,
+        "y": -1
+      }
+    },
+    {
+      "t": 231892.1,
+      "wall": 1795864776267,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 950,
+        "y": -1
+      }
+    },
+    {
+      "t": 232019.4,
+      "wall": 1795864776394,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 127
+      }
+    },
+    {
+      "t": 233343,
+      "wall": 1795864777718,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 707,
+        "y": -1
+      }
+    },
+    {
+      "t": 233343.2,
+      "wall": 1795864777718,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 707,
+        "y": -1
+      }
+    },
+    {
+      "t": 233451,
+      "wall": 1795864777826,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 108
+      }
+    },
+    {
+      "t": 233947.7,
+      "wall": 1795864778323,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}

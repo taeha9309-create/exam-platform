@@ -1,0 +1,208 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:29:45.832Z",
+  "scenario": "chrome-gemini-sidebar",
+  "trial": 1,
+  "entries": [
+    {
+      "t": 2500,
+      "wall": 1795865385832,
+      "kind": "start",
+      "detail": {
+        "browser": "Google Chrome 158",
+        "scenario": "chrome-gemini-sidebar",
+        "trial": 1
+      }
+    },
+    {
+      "t": 2500.2,
+      "wall": 1795865385833,
+      "kind": "screen",
+      "detail": {
+        "isExtended": false,
+        "source": "start"
+      }
+    },
+    {
+      "t": 3073.4,
+      "wall": 1795865386406,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 1673,
+        "y": -1
+      }
+    },
+    {
+      "t": 3073.4,
+      "wall": 1795865386406,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 1673,
+        "y": -1
+      }
+    },
+    {
+      "t": 3237.5,
+      "wall": 1795865386570,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 164
+      }
+    },
+    {
+      "t": 3556.3,
+      "wall": 1795865386889,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 1663,
+        "y": -2
+      }
+    },
+    {
+      "t": 3556.4,
+      "wall": 1795865386889,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 1663,
+        "y": -2
+      }
+    },
+    {
+      "t": 4225.2,
+      "wall": 1795865387558,
+      "kind": "blur",
+      "detail": {}
+    },
+    {
+      "t": 4225.2,
+      "wall": 1795865387558,
+      "kind": "leave",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 4225.3,
+      "wall": 1795865387558,
+      "kind": "signal",
+      "detail": {
+        "name": "BLUR"
+      }
+    },
+    {
+      "t": 4337.4,
+      "wall": 1795865387670,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 781
+      }
+    },
+    {
+      "t": 4551.7,
+      "wall": 1795865387884,
+      "kind": "resize",
+      "detail": {
+        "prev": {
+          "innerWidth": 1920,
+          "outerWidth": 1920,
+          "innerHeight": 911,
+          "outerHeight": 1032
+        },
+        "next": {
+          "innerWidth": 1510,
+          "outerWidth": 1920,
+          "innerHeight": 903,
+          "outerHeight": 1032
+        },
+        "sidebar": {
+          "type": "SIDEBAR_SUSPECT",
+          "deltaInner": 410
+        }
+      }
+    },
+    {
+      "t": 4551.7,
+      "wall": 1795865387884,
+      "kind": "signal",
+      "detail": {
+        "name": "SIDEBAR_SUSPECT",
+        "deltaInner": 410
+      }
+    },
+    {
+      "t": 5070.7,
+      "wall": 1795865388403,
+      "kind": "hasFocusPoll",
+      "detail": {
+        "hasFocus": false,
+        "driftMs": -2
+      }
+    },
+    {
+      "t": 6163.6,
+      "wall": 1795865389496,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 1510,
+        "y": 384
+      }
+    },
+    {
+      "t": 6163.6,
+      "wall": 1795865389496,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 1510,
+        "y": 384
+      }
+    },
+    {
+      "t": 9561.8,
+      "wall": 1795865392894,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 3398
+      }
+    },
+    {
+      "t": 9561.9,
+      "wall": 1795865392894,
+      "kind": "signal",
+      "detail": {
+        "name": "POINTER_LEAVE",
+        "severity": "WARN",
+        "durationMs": 3398
+      }
+    },
+    {
+      "t": 10283.1,
+      "wall": 1795865393615,
+      "kind": "focus",
+      "detail": {}
+    },
+    {
+      "t": 10283.2,
+      "wall": 1795865393616,
+      "kind": "return",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 11068.5,
+      "wall": 1795865394401,
+      "kind": "hasFocusPoll",
+      "detail": {
+        "hasFocus": true,
+        "driftMs": -9
+      }
+    },
+    {
+      "t": 11335.8,
+      "wall": 1795865394668,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}

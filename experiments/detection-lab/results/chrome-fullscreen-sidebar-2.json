@@ -1,0 +1,97 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:35:55.257Z",
+  "scenario": "fullscreen-sidebar",
+  "trial": 2,
+  "entries": [
+    {
+      "t": 82801.2,
+      "wall": 1795865755258,
+      "kind": "start",
+      "detail": {
+        "browser": "Google Chrome 158",
+        "scenario": "fullscreen-sidebar",
+        "trial": 2
+      }
+    },
+    {
+      "t": 82801.2,
+      "wall": 1795865755258,
+      "kind": "screen",
+      "detail": {
+        "isExtended": false,
+        "source": "start"
+      }
+    },
+    {
+      "t": 83466.4,
+      "wall": 1795865755923,
+      "kind": "resize",
+      "detail": {
+        "prev": {
+          "innerWidth": 1920,
+          "outerWidth": 1920,
+          "innerHeight": 911,
+          "outerHeight": 1032
+        },
+        "next": {
+          "innerWidth": 1920,
+          "outerWidth": 1904,
+          "innerHeight": 1080,
+          "outerHeight": 1064
+        },
+        "sidebar": null
+      }
+    },
+    {
+      "t": 83466.4,
+      "wall": 1795865755923,
+      "kind": "fullscreenchange",
+      "detail": {
+        "fullscreen": true
+      }
+    },
+    {
+      "t": 84070.9,
+      "wall": 1795865756528,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 1184,
+        "y": 94
+      }
+    },
+    {
+      "t": 84070.9,
+      "wall": 1795865756528,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 1184,
+        "y": 94
+      }
+    },
+    {
+      "t": 84097.7,
+      "wall": 1795865756554,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 27
+      }
+    },
+    {
+      "t": 86482,
+      "wall": 1795865758939,
+      "kind": "signal",
+      "detail": {
+        "name": "LARGE_SELECTION",
+        "length": 221
+      }
+    },
+    {
+      "t": 91324.1,
+      "wall": 1795865763781,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}

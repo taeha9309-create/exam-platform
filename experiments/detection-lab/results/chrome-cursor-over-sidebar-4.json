@@ -1,0 +1,96 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:32:59.233Z",
+  "scenario": "cursor-over-sidebar",
+  "trial": 4,
+  "entries": [
+    {
+      "t": 36719.1,
+      "wall": 1795865579234,
+      "kind": "start",
+      "detail": {
+        "browser": "Google Chrome 158",
+        "scenario": "cursor-over-sidebar",
+        "trial": 4
+      }
+    },
+    {
+      "t": 36719.1,
+      "wall": 1795865579234,
+      "kind": "screen",
+      "detail": {
+        "isExtended": false,
+        "source": "start"
+      }
+    },
+    {
+      "t": 37033.2,
+      "wall": 1795865579548,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 1513,
+        "y": 394
+      }
+    },
+    {
+      "t": 37033.3,
+      "wall": 1795865579548,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 1513,
+        "y": 394
+      }
+    },
+    {
+      "t": 41995.6,
+      "wall": 1795865584510,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 4962
+      }
+    },
+    {
+      "t": 41995.6,
+      "wall": 1795865584510,
+      "kind": "signal",
+      "detail": {
+        "name": "POINTER_LEAVE",
+        "severity": "WARN",
+        "durationMs": 4962
+      }
+    },
+    {
+      "t": 42318.4,
+      "wall": 1795865584833,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 874,
+        "y": -1
+      }
+    },
+    {
+      "t": 42318.4,
+      "wall": 1795865584833,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 874,
+        "y": -1
+      }
+    },
+    {
+      "t": 42355,
+      "wall": 1795865584869,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 37
+      }
+    },
+    {
+      "t": 42892.9,
+      "wall": 1795865585407,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}

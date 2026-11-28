@@ -243,25 +243,43 @@ function stopRecording() {
   setStatus(`기록 정지 (이벤트 ${state.entries.length}건)`);
 }
 
-function exportJson() {
-  const b = browserInfo();
-  // 기록한 적이 있으면 그때의 시나리오·회차, 없으면 현재 선택값
-  const { scenario, trial } = state.session ?? { scenario: $('scenario').value, trial: Number($('trial').value) };
-  const entries = [...state.entries].sort((x, y) => x.wall - y.wall || x.t - y.t);
-  const payload = { browser: b.label, userAgent: navigator.userAgent, startedAt: state.startedAt, scenario, trial, entries };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+function download(name, text) {
+  const blob = new Blob([text], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `${b.key}-${scenario}-${trial}.json`;
+  a.download = name;
   a.setAttribute('data-lab', '');
   document.body.append(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(a.href);
-  setStatus(`내보냄: ${a.download}`);
 }
 
-$('rec').addEventListener('click', () => (state.recording ? stopRecording() : startRecording()));
+// serve.js로 열었으면 results/에 바로 저장하고, 그렇지 않으면 파일로 내려받는다(README의 기존 방식).
+async function exportJson() {
+  const b = browserInfo();
+  // 기록한 적이 있으면 그때의 시나리오·회차, 없으면 현재 선택값
+  const { scenario, trial } = state.session ?? { scenario: $('scenario').value, trial: Number($('trial').value) };
+  const entries = [...state.entries].sort((x, y) => x.wall - y.wall || x.t - y.t);
+  const payload = { browser: b.label, userAgent: navigator.userAgent, startedAt: state.startedAt, scenario, trial, entries };
+  const text = JSON.stringify(payload, null, 2);
+  const name = `${b.key}-${scenario}-${trial}.json`;
+  try {
+    const r = await fetch(`/__save?name=${encodeURIComponent(name)}`, { method: 'POST', body: text });
+    if (r.ok) { setStatus(`저장됨: results/${name}`); return true; }
+  } catch { /* 저장 서버가 없음 → 내려받기로 대체 */ }
+  download(name, text);
+  setStatus(`내려받음: ${name} (results/ 폴더로 옮겨 주세요)`);
+  return true;
+}
+
+// 기록 정지 = 자동 저장 + 다음 회차 번호로 증가(회차마다 클릭 2번: 시작, 정지)
+$('rec').addEventListener('click', async () => {
+  if (!state.recording) { startRecording(); return; }
+  stopRecording();
+  await exportJson();
+  $('trial').value = String(Number($('trial').value) + 1);
+});
 $('export').addEventListener('click', exportJson);
 $('clear').addEventListener('click', () => {
   state.entries = [];
@@ -274,6 +292,26 @@ $('fs').addEventListener('click', () => {
   document.documentElement.requestFullscreen().catch((err) => setStatus(`전체화면 실패: ${err.message}`));
 });
 
+// 오탐 측정용 도우미: 일상 행동(권한 팝업·OS 알림)을 실험 페이지에서 일으킨다
+$('perm-geo').addEventListener('click', () => {
+  // 팝업에서 "이번에만 허용"을 고르면 회차마다 다시 뜬다
+  navigator.geolocation.getCurrentPosition(() => setStatus('위치 권한 응답: 허용'), (e) => setStatus(`위치 권한 응답: ${e.message}`), { timeout: 60000 });
+});
+$('perm-notify').addEventListener('click', async () => setStatus(`알림 권한: ${await Notification.requestPermission()}`));
+$('os-notify').addEventListener('click', () => {
+  if (Notification.permission !== 'granted') { setStatus('먼저 [알림 권한 허용]을 눌러 허용해 주세요'); return; }
+  setTimeout(() => new Notification('실험용 알림', { body: '이 알림을 클릭하거나 무시하세요' }), 2000);
+  setStatus('2초 뒤 OS 알림이 표시됩니다');
+});
+
 fillScenarios();
+// ?scenario=tab-switch&trial=1 로 시나리오·회차를 미리 고른다
+{
+  const q = new URLSearchParams(location.search);
+  const sc = q.get('scenario');
+  if (sc && [...$('scenario').options].some((o) => o.value === sc)) $('scenario').value = sc;
+  const tr = Number(q.get('trial'));
+  if (Number.isInteger(tr) && tr >= 1) $('trial').value = String(tr);
+}
 renderCounts();
 setStatus(`${browserInfo().label} · 준비됨`);
