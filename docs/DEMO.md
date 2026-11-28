@@ -81,3 +81,26 @@ PLAYWRIGHT_BASE_URL=https://<서비스 주소> npm run e2e
 5. 감독관이 [잠겨 있던 시간 추가] 재개 → 학생1 이어서 응시, 마감 +1분, 조치 기록에 "재개"·"시간 추가". 경고 메시지는 2초 안에 학생1 화면에 뜨고 [확인]으로 닫힘.
 
 **이 점검이 실제로 확인하는 것과 흉내 내는 것.** 자동 브라우저(Playwright)는 포커스 에뮬레이션 때문에 탭 전환·창 포커스 이탈이 실제로 일어나지 않습니다. 그래서 "다른 탭으로 이동"은 페이지 안에서 `document.hidden`·`document.hasFocus()`를 덮어쓰고 `visibilitychange`·`blur` 이벤트를 보내 흉내 냅니다(전체화면 해제는 실제 `exitFullscreen()`, 붙여넣기는 데이터를 담은 합성 `paste` 이벤트). 따라서 이 점검은 "신호가 서버·대시보드·학생 화면까지 흐르는지"를 확인하며, 실제 기기에서 브라우저가 이탈을 얼마나 정확히 알려 주는지는 0단계 실험(사람이 직접 수행)에서 확인합니다. 네트워크 장애·연결 끊김 시나리오는 이 점검에 포함되지 않습니다.
+
+### 답안 보존 점검 (`e2e/answer-preservation.spec.ts`)
+
+`npm run e2e`에 함께 실행됩니다(이 파일만: `npm run e2e -- answer-preservation`). 응시 중 서술형을 입력하고 **네트워크를 차단한 채** 더 입력·새로고침한 뒤 복구해도 답이 화면과 서버에 남는지 3회 반복해 확인합니다. 차단이 실제로 작동했는지(`navigator.onLine`, 저장 전송 시도, ack 없음)를 먼저 확인하므로 "차단이 안 먹어서 통과"하는 일은 없습니다. 사람이 시연할 때는 브라우저 개발자 도구의 Network 탭에서 "Offline"을 켜고 같은 순서로 해 보면 됩니다.
+
+## 4. 부하·실시간성 측정 (운영자, 로컬 전용)
+
+가상 학생 20명과 교수자 소켓 2개로 제출 20/20·서버 5xx 0·수신 누락 0·신호 지연 95% ≤ 2초를 확인합니다(SPEC 9장, 결과는 `docs/STUDY.md` 8절과 `docs/load-test-results/`).
+
+```bash
+# 전용 DB (처음 한 번). DB 이름은 반드시 exam_load, 호스트는 localhost
+docker exec sdd-lab-db-1 psql -U exam -d postgres -c "CREATE DATABASE exam_load"
+DATABASE_URL=postgresql://exam:exam@localhost:5432/exam_load npm run db:deploy -w @exam/server
+npm run build
+# 서버를 3200 포트로 띄운다(값은 이 실행에만 쓰는 임의 값)
+DATABASE_URL=postgresql://exam:exam@localhost:5432/exam_load JWT_SECRET=<32자 이상 임의> PORT=3200 npm start
+# 다른 터미널에서
+DATABASE_URL=postgresql://exam:exam@localhost:5432/exam_load npm run load-test -- --base http://localhost:3200 --students 20
+```
+
+- **운영(Render) 서버에는 실행하지 마세요.** 스크립트는 `--base`·`DATABASE_URL`이 localhost가 아니거나 DB 이름이 `exam_load`가 아니면 시작하지 않습니다.
+- 서버와 가상 학생이 같은 PC이므로 이 결과는 **로컬 상한 측정**입니다(교실 와이파이·Render 무료 서버의 지연은 포함되지 않음).
+- 종료 코드 0이면 합격이며, 끝나면 만든 시험·교수자를 지웁니다.
