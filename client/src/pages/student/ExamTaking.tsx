@@ -43,13 +43,15 @@ export interface ExamTakingProps {
   deadline: number | null;
   clock: { now(): number };
   violationCount: number;
+  /** 서버가 attempt:state로 알려 준 자동 잠금 여부. boolean이면 위반 수 추정보다 우선한다. */
+  locked?: boolean;
   connected: boolean;
   /** GET /api/student/attempt로 서버 상태를 다시 읽는다 */
   onRefresh: () => void;
 }
 
 /** P-06 응시(F-11): 문항 목록·자유 이동·남은 시간(서버 시계)·자동 저장·제출. 감지·위반 처리는 계획 2. */
-export function ExamTaking({ examCode, token, socket, state, deadline, clock, violationCount, connected, onRefresh }: ExamTakingProps) {
+export function ExamTaking({ examCode, token, socket, state, deadline, clock, violationCount, locked, connected, onRefresh }: ExamTakingProps) {
   const [exam, setExam] = useState<StudentExam | null>(null);
   const [values, setValues] = useState<Record<string, AnswerValue>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -268,7 +270,7 @@ export function ExamTaking({ examCode, token, socket, state, deadline, clock, vi
 
         {state === 'PAUSED' ? (
           <div role="alert" className={styles.lock}>
-            {autoLocked ? t.student.taking.autoLocked(VIOLATION_LIMIT) : t.student.taking.paused}
+            {(typeof locked === 'boolean' ? locked : autoLocked) ? t.student.taking.autoLocked(VIOLATION_LIMIT) : t.student.taking.paused}
           </div>
         ) : showGate ? (
           <FullscreenGate />

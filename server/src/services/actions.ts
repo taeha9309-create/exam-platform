@@ -148,7 +148,7 @@ export async function applyAction(attemptId: string, staffId: string, input: Act
   });
 
   // 커밋 뒤 알림. 각각 따로 감싸서 하나가 실패해도 나머지는 보내고, 어떤 실패도 이미 확정된 변경을 되돌리지 않는다.
-  if (out.stateChanged) notify(() => broadcast.attemptState(out.updated, out.exam));
+  if (out.stateChanged) notify(() => broadcast.attemptState(out.updated, out.exam, out.summary.locked)); // locked: PAUSED이고 마지막 중지가 AUTO_PAUSE일 때만 true
   if (out.warning !== null) {
     const message = out.warning;
     notify(() => broadcast.proctorWarning(attemptId, message));

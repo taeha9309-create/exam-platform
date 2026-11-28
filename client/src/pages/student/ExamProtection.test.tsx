@@ -48,6 +48,7 @@ function renderTaking(over: { state?: 'ACTIVE' | 'PAUSED'; violationCount?: numb
     deadline: Date.now() + 600_000,
     clock: { now: () => Date.now() },
     violationCount: over.violationCount ?? 0,
+    locked: undefined as boolean | undefined,
     connected: true,
     onRefresh: vi.fn(),
   };
@@ -101,6 +102,15 @@ describe('일시정지', () => {
     await screen.findByText('1+1은?');
     serverEmit('violation:counted', { count: 5, limit: 5, type: 'FULLSCREEN_EXIT' });
     rerenderWith({ state: 'PAUSED', violationCount: 5 });
+    expect(screen.getByText(t.student.taking.autoLocked(5))).toBeTruthy();
+  });
+
+  it('서버가 locked를 주면 위반 수 추정보다 우선한다(감독관 일시정지는 위반 5여도 일반 문구, 자동 잠금은 위반 수와 무관하게 잠금 문구)', async () => {
+    const { rerenderWith } = renderTaking();
+    await screen.findByText('1+1은?');
+    rerenderWith({ state: 'PAUSED', violationCount: 5, locked: false });
+    expect(screen.getByText(t.student.taking.paused)).toBeTruthy();
+    rerenderWith({ state: 'PAUSED', violationCount: 3, locked: true });
     expect(screen.getByText(t.student.taking.autoLocked(5))).toBeTruthy();
   });
 });
