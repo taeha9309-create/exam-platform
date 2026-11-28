@@ -22,6 +22,7 @@ describe('signalSeverity', () => {
     ['HEARTBEAT_GAP', null, 'WARN'],
     ['SEQ_GAP', null, 'WARN'],
     ['RECONNECT', null, 'INFO'],
+    ['SIDEBAR_SUSPECT', null, 'INFO'],
   ] as const)('%s %s -> %s', (type, ms, sev) => {
     expect(signalSeverity(type, ms)).toBe(sev);
   });
@@ -39,7 +40,7 @@ describe('countsAsViolation', () => {
     expect(countsAsViolation(t, null, 'PAUSED')).toBe(false);
     expect(countsAsViolation(t, null, 'WAITING')).toBe(false);
   });
-  it.each(['DISCONNECT', 'HEARTBEAT_GAP', 'SEQ_GAP', 'MULTI_MONITOR', 'LEAVE_START', 'RECONNECT'] as const)(
+  it.each(['DISCONNECT', 'HEARTBEAT_GAP', 'SEQ_GAP', 'MULTI_MONITOR', 'LEAVE_START', 'RECONNECT', 'SIDEBAR_SUSPECT'] as const)(
     '%s는 항상 위반 아님',
     (t) => {
       expect(countsAsViolation(t, 99999, 'ACTIVE')).toBe(false);

@@ -2,6 +2,7 @@
 // 신호에는 학생이 쓴 내용·토큰을 넣지 않는다. meta에는 길이·원인 같은 사실만 담는다.
 import { HEARTBEAT_MS, type ClientSignalType } from '@exam/shared';
 import { useEffect, useRef, useState } from 'react';
+import { detectSidebarShrink, type WindowSize } from './sidebarShrink';
 import { createSignalQueue, type QueueMsg, type SendResult, type SignalQueue } from './signalQueue';
 
 const FOCUS_POLL_MS = 1000;
@@ -196,7 +197,17 @@ export function useSignalCollector(options: SignalCollectorOptions): { awayNow: 
       if (opts.current.pasteMode === 'BLOCK' && inAnswerField(e.target)) e.preventDefault();
     };
 
+    // --- 사이드바 열림 의심: 직전 창 크기와 비교. 이벤트마다 기준값을 갱신해 같은 축소는 한 번만 기록한다 ---
+    let lastSize: WindowSize = { outerWidth: window.outerWidth, innerWidth: window.innerWidth };
+    const onResize = () => {
+      const next: WindowSize = { outerWidth: window.outerWidth, innerWidth: window.innerWidth };
+      const hit = detectSidebarShrink(lastSize, next);
+      lastSize = next;
+      if (hit && opts.current.enabled) emitSignal('SIDEBAR_SUSPECT', { meta: { deltaInner: hit.deltaInner } });
+    };
+
     document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('resize', onResize);
     window.addEventListener('blur', onBlur);
     window.addEventListener('focus', onFocus);
     document.addEventListener('fullscreenchange', onFullscreen);
@@ -229,6 +240,7 @@ export function useSignalCollector(options: SignalCollectorOptions): { awayNow: 
       clearTimeout(retryTimer);
       socket?.off('connect', onConnect);
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('resize', onResize);
       window.removeEventListener('blur', onBlur);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('fullscreenchange', onFullscreen);
