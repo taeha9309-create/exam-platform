@@ -115,6 +115,17 @@ describe('위반 표시', () => {
     expect(screen.getByRole('status').textContent).toBe('위반 3/5: 전체화면 해제');
   });
 
+  it('violation:counted 뒤 더 작은 violationCount가 와도 카운터는 줄지 않는다(max)', async () => {
+    const { rerenderWith } = renderTaking();
+    await screen.findByText('1+1은?');
+    serverEmit('violation:counted', { count: 3, limit: 5, type: 'LEAVE' });
+    rerenderWith({ violationCount: 2 });
+    expect(screen.getByText('위반 3/5')).toBeTruthy();
+    // 반대로 attempt:state가 더 크면 그 값을 따른다(이 단언이 counted 우선 구현을 잡는다)
+    rerenderWith({ violationCount: 4 });
+    expect(screen.getByText('위반 4/5')).toBeTruthy();
+  });
+
   it('attempt:state의 violationCount 변경도 카운터에 반영된다', async () => {
     const { rerenderWith } = renderTaking();
     await screen.findByText('1+1은?');
@@ -134,6 +145,21 @@ describe('감독관 경고', () => {
     fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: t.student.taking.warningConfirm }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('경고가 연달아 오면 하나씩 보이고 [확인]마다 다음 건이 나타난다', async () => {
+    renderTaking();
+    await screen.findByText('1+1은?');
+    serverEmit('proctor:warning', { message: '첫째 경고' });
+    serverEmit('proctor:warning', { message: '둘째 경고' });
+    const confirm = () => fireEvent.click(screen.getByRole('button', { name: t.student.taking.warningConfirm }));
+    expect(screen.getByRole('dialog').textContent).toContain('첫째 경고');
+    expect(screen.queryByText('둘째 경고')).toBeNull();
+    confirm();
+    expect(screen.getByRole('dialog').textContent).toContain('둘째 경고');
+    expect(screen.queryByText('첫째 경고')).toBeNull();
+    confirm();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
