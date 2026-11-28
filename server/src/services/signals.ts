@@ -150,10 +150,11 @@ interface Outcome {
 }
 
 /** 서버 전용 신호(응시 행 잠금을 이미 잡은 트랜잭션 안). seq가 없고 위반으로 세지 않는다. */
-async function insertServerSignal(tx: Tx, cur: LockedAttempt, type: ServerSignalType, meta: object, now: Date): Promise<Signal> {
+async function insertServerSignal(tx: Tx, cur: LockedAttempt, type: ServerSignalType, meta: object, now: Date, suppressSeverity = false): Promise<Signal> {
   const severity = signalSeverity(type);
   const signal = await tx.signal.create({ data: { attemptId: cur.id, type, severity, meta: meta as Prisma.InputJsonObject, receivedAt: now } });
-  const raised = maxSeverity(cur.unackedSeverity, severity);
+  // 네트워크 장애 묶음(SPEC 5.5)에 든 신호는 저장은 하되 카드 색(unackedSeverity)은 올리지 않는다.
+  const raised = suppressSeverity ? cur.unackedSeverity : maxSeverity(cur.unackedSeverity, severity);
   if (raised !== cur.unackedSeverity) {
     await tx.attempt.update({ where: { id: cur.id }, data: { unackedSeverity: raised } });
     cur.unackedSeverity = raised;
@@ -290,11 +291,17 @@ export async function recordClientSignal(attemptId: string, tokenHash: string, p
 }
 
 /** 서버가 만드는 신호(MULTI_MONITOR·DISCONNECT·RECONNECT·HEARTBEAT_GAP·SEQ_GAP). seq 없음, 위반 아님. 종착 상태·없는 응시는 무시한다. */
-export async function recordServerSignal(attemptId: string, type: ServerSignalType, meta: object, now: NowArg): Promise<void> {
+export async function recordServerSignal(
+  attemptId: string,
+  type: ServerSignalType,
+  meta: object,
+  now: NowArg,
+  options: { suppressSeverity?: boolean } = {},
+): Promise<void> {
   const out = await runExamTx(async (tx) => {
     const cur = await lockAttempt(tx, attemptId);
     if (!cur || TERMINAL.has(cur.state)) return null;
-    const signal = await insertServerSignal(tx, cur, type, meta, typeof now === 'function' ? now() : now);
+    const signal = await insertServerSignal(tx, cur, type, meta, typeof now === 'function' ? now() : now, options.suppressSeverity === true);
     return { examId: cur.examId, signals: [signal] } satisfies Outcome;
   });
   if (out) await notifySignals(out, attemptId);
@@ -314,7 +321,14 @@ export async function recordHeartbeat(attemptId: string, seq: number, now: NowAr
     if (!ACCEPTING.has(cur.state)) return { alive: true as const };
     const at = typeof now === 'function' ? now() : now;
     const outcome: Outcome = { examId: cur.examId, signals: [] };
-    if (valid > cur.lastSeq + 1) outcome.signals.push(await insertServerSignal(tx, cur, 'SEQ_GAP', { expected: cur.lastSeq + 1, got: valid }, at));
+    if (valid > cur.lastSeq + 1) {
+      // 신호 경로와 같은 저장 상한. SEQ_GAP 행(seq 없음)도 세어, 하트비트만 보내 행을 무한히 만드는 것을 막는다. 넘으면 lastSeq만 진행한다.
+      const stored = await tx.signal.count({
+        where: { attemptId, OR: [{ seq: { not: null } }, { type: 'SEQ_GAP' }] },
+        take: MAX_CLIENT_SIGNALS_PER_ATTEMPT,
+      });
+      if (stored < MAX_CLIENT_SIGNALS_PER_ATTEMPT) outcome.signals.push(await insertServerSignal(tx, cur, 'SEQ_GAP', { expected: cur.lastSeq + 1, got: valid }, at));
+    }
     await tx.attempt.update({ where: { id: attemptId }, data: { lastHeartbeatAt: at, lastSeq: Math.max(cur.lastSeq, valid) } });
     return { alive: true as const, outcome };
   });
