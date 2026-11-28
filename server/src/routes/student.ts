@@ -181,6 +181,7 @@ export function createStudentRouter(options: StudentRouterOptions = {}): Router 
       }
       res.set('Cache-Control', 'no-store');
       res.json({
+        pasteMode: attempt.exam.pasteMode,
         questions: out,
         answers: answers.map((a) => ({
           questionId: a.questionId,

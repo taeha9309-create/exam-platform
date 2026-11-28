@@ -12,6 +12,7 @@ import { AppError } from '../errors';
 import { normalizeIpKey } from '../security/loginProtection';
 import { createRateLimiter } from '../security/rateLimit';
 import { loadDashboardSnapshot } from '../services/dashboard';
+import { parseClientSignal, parseHeartbeat, recordClientSignal, recordHeartbeat } from '../services/signals';
 import { saveAnswer } from '../services/submission';
 import { attemptRoom, attemptStatePayload, setIo, staffRoom, studentsRoom } from './broadcast';
 
@@ -55,6 +56,8 @@ export interface AttachSocketOptions {
   studentAuthFailMax?: number;
   /** 교수자 쿠키 인증 실패 한도(IP당 1분). 기본 STAFF_AUTH_FAIL_MAX */
   staffAuthFailMax?: number;
+  /** 소켓당 처리 대기 signal·hb 상한. 기본 MAX_PENDING_PER_SOCKET. 테스트에서 줄여 넣는다 */
+  maxPendingPerSocket?: number;
 }
 
 /**
@@ -88,13 +91,26 @@ function clientIp(req: IncomingMessage, trustProxy: number): string | undefined 
 export const ANSWER_SAVE_BURST = 100;
 export const ANSWER_SAVE_REFILL_PER_SEC = 20;
 
+/** signal 소켓당 속도 제한: 버스트 30, 초당 10. answer:save와 별도 버킷이다(서로의 한도를 쓰지 않는다). 정상 클라이언트는 한 건씩 ack를 기다리며 보낸다. */
+export const SIGNAL_BURST = 30;
+export const SIGNAL_REFILL_PER_SEC = 10;
+/** hb 소켓당 속도 제한: 버스트 10, 초당 2. 정상은 5초에 1건이다. 넘치는 hb는 조용히 버린다. */
+/** 소켓 하나에서 처리 대기 중인 signal·hb 상한. 넘으면 BUSY(메모리 안의 대기열이 무한히 자라지 않게 한다). */
+export const MAX_PENDING_PER_SOCKET = 50;
+export const HEARTBEAT_BURST = 10;
+export const HEARTBEAT_REFILL_PER_SEC = 2;
+
 interface Bucket {
   tokens: number;
   at: number;
+  burst: number;
+  refillPerSec: number;
 }
 
+const newBucket = (burst: number, refillPerSec: number): Bucket => ({ tokens: burst, at: Date.now(), burst, refillPerSec });
+
 function takeToken(bucket: Bucket, nowMs: number): boolean {
-  bucket.tokens = Math.min(ANSWER_SAVE_BURST, bucket.tokens + ((nowMs - bucket.at) / 1000) * ANSWER_SAVE_REFILL_PER_SEC);
+  bucket.tokens = Math.min(bucket.burst, bucket.tokens + ((nowMs - bucket.at) / 1000) * bucket.refillPerSec);
   bucket.at = nowMs;
   if (bucket.tokens < 1) return false;
   bucket.tokens -= 1;
@@ -212,6 +228,49 @@ async function handleDashboardJoin(socket: Socket, payload: unknown, ack: unknow
   }
 }
 
+type SignalAck = (res: { ok: true } | { ok: false; code: string }) => void;
+
+/**
+ * 학생 신호(SPEC 7.2 signal). 학생 소켓만. 소켓 하나의 신호·hb는 한 줄로 세워(chain) 받은 순서대로 처리한다:
+ * 서로 다른 트랜잭션이 순서를 바꿔 처리하면 seq가 낮은 신호가 "중복"으로 버려지거나 가짜 SEQ_GAP이 생긴다.
+ * (다른 소켓·다른 경로의 동시 처리는 서비스의 응시 행 잠금이 직렬화한다.)
+ */
+async function handleSignal(socket: Socket, payload: unknown, ack: unknown): Promise<void> {
+  const send: SignalAck = (res) => {
+    if (typeof ack !== 'function') return;
+    try {
+      (ack as SignalAck)(res);
+    } catch {
+      // 연결이 이미 끊겼어도 서버는 계속 동작한다.
+    }
+  };
+  const data = socket.data as SocketData;
+  if (data.role !== 'student') return send({ ok: false, code: 'UNAUTHORIZED' });
+  try {
+    const res = await recordClientSignal(data.attemptId, data.sessionTokenHash, payload, () => new Date());
+    if (res.ok) return send({ ok: true });
+    send({ ok: false, code: res.code });
+    if (res.revoked) setTimeout(() => socket.disconnect(true), 50).unref(); // ack가 먼저 전달되도록 잠깐 뒤에 끊는다.
+  } catch (err) {
+    console.error('신호 저장 실패', err instanceof Error ? err.message : 'unknown');
+    send({ ok: false, code: err instanceof AppError && err.code === 'BUSY' ? 'BUSY' : 'INTERNAL' });
+  }
+}
+
+/** 하트비트: ack 없음. 형식이 틀리면 조용히 버린다. 폐기된 세션이면 연결을 끊는다. */
+async function handleHeartbeat(socket: Socket, payload: unknown): Promise<void> {
+  const data = socket.data as SocketData;
+  if (data.role !== 'student') return;
+  const seq = parseHeartbeat(payload);
+  if (seq === null) return;
+  try {
+    const alive = await recordHeartbeat(data.attemptId, seq, () => new Date(), data.sessionTokenHash);
+    if (!alive) socket.disconnect(true);
+  } catch (err) {
+    console.error('하트비트 저장 실패', err instanceof Error ? err.message : 'unknown');
+  }
+}
+
 type SaveAck = (res: { ok: true; savedAt: string } | { ok: false; code: string }) => void;
 
 /**
@@ -259,7 +318,18 @@ async function syncStudentState(socket: Socket, attemptId: string, examId: strin
     return;
   }
   if (!socket.connected) return;
-  socket.emit(EV.ATTEMPT_STATE, attemptStatePayload(attempt, attempt.exam));
+  // 학생 화면이 "자동 잠금"과 "감독관 일시정지"를 구별하도록 PAUSED일 때만 마지막 중지 조치를 본다.
+  let locked = false;
+  if (attempt.state === 'PAUSED') {
+    const lastPause = await prisma.proctorAction.findFirst({
+      where: { attemptId, type: { in: ['PAUSE', 'AUTO_PAUSE'] } },
+      orderBy: { createdAt: 'desc' },
+      select: { type: true },
+    });
+    locked = lastPause?.type === 'AUTO_PAUSE';
+    if (!socket.connected) return;
+  }
+  socket.emit(EV.ATTEMPT_STATE, attemptStatePayload(attempt, attempt.exam, locked));
   if (attempt.state === 'WAITING') {
     // broadcast.waitingCount와 같은 조건(준비 완료 = WAITING + 동의 + 환경 점검). 이 소켓에만 보낸다.
     const [ready, total] = await Promise.all([
@@ -290,6 +360,10 @@ export function attachSocket(httpServer: HttpServer, options: AttachSocketOption
   const authenticating = new WeakSet<object>();
   // 주체별 열린 소켓(연결 순서). 끊기면 항상 지우므로 빈 키는 남지 않는다.
   const byPrincipal = new Map<string, Socket[]>();
+  const maxPending = options.maxPendingPerSocket ?? MAX_PENDING_PER_SOCKET;
+  // 응시 단위 signal 버킷. 한 응시의 소켓(최대 3개)이 합쳐서 한 버킷을 쓴다(소켓을 늘려 한도를 우회하지 못하게).
+  // 소켓이 하나도 남지 않으면 지운다(참조 수 0).
+  const attemptBuckets = new Map<string, { bucket: Bucket; refs: number }>();
   const io = new Server(httpServer, {
     // cors 옵션을 주지 않는다: 다른 출처에 CORS 허용 헤더를 내지 않는다(같은 출처 서비스).
     serveClient: false,
@@ -345,8 +419,66 @@ export function attachSocket(httpServer: HttpServer, options: AttachSocketOption
     socket.on(EV.DASHBOARD_JOIN, (payload: unknown, ack: unknown) => void handleDashboardJoin(socket, payload, ack));
 
     const data = socket.data as SocketData & { attempt?: Attempt & { exam: Exam } };
-    const bucket: Bucket = { tokens: ANSWER_SAVE_BURST, at: Date.now() };
+    const bucket = newBucket(ANSWER_SAVE_BURST, ANSWER_SAVE_REFILL_PER_SEC);
     socket.on(EV.ANSWER_SAVE, (payload: unknown, ack: unknown) => void handleAnswerSave(socket, payload, ack, bucket));
+
+    // signal·hb: 소켓별 직렬 처리(tail)와 별도 속도 제한 버킷. 한도 확인은 DB 접근 전에 동기로 한다.
+    const signalBucket = newBucket(SIGNAL_BURST, SIGNAL_REFILL_PER_SEC);
+    let attemptBucket: Bucket | undefined;
+    if (data.role === 'student') {
+      const entry = attemptBuckets.get(data.attemptId) ?? { bucket: newBucket(SIGNAL_BURST, SIGNAL_REFILL_PER_SEC), refs: 0 };
+      entry.refs += 1;
+      attemptBuckets.set(data.attemptId, entry);
+      attemptBucket = entry.bucket;
+      const attemptId = data.attemptId;
+      socket.once('disconnect', () => {
+        const cur = attemptBuckets.get(attemptId);
+        if (!cur) return;
+        cur.refs -= 1;
+        if (cur.refs <= 0) attemptBuckets.delete(attemptId);
+      });
+    }
+    let pending = 0;
+    const hbBucket = newBucket(HEARTBEAT_BURST, HEARTBEAT_REFILL_PER_SEC);
+    let tail: Promise<void> = Promise.resolve();
+    socket.on(EV.SIGNAL, (payload: unknown, ack: unknown) => {
+      if (typeof payload === 'function' && ack === undefined) {
+        ack = payload;
+        payload = undefined;
+      }
+      const reply = (res: Parameters<SignalAck>[0]): void => {
+        if (typeof ack !== 'function') return;
+        try {
+          (ack as SignalAck)(res);
+        } catch {
+          // 연결이 이미 끊겼어도 서버는 계속 동작한다.
+        }
+      };
+      if (data.role !== 'student') return reply({ ok: false, code: 'UNAUTHORIZED' });
+      // 한도 확인은 DB 접근 전에 동기로: 소켓 버킷과 응시 버킷 모두 통과해야 한다.
+      const nowMs = Date.now();
+      if (!takeToken(signalBucket, nowMs) || (attemptBucket && !takeToken(attemptBucket, nowMs))) return reply({ ok: false, code: 'BUSY' });
+      // 형식 검증은 DB 없이 동기로 끝나므로 대기열에 넣지 않고 바로 거절한다.
+      if (!parseClientSignal(payload)) return reply({ ok: false, code: 'INVALID' });
+      if (pending >= maxPending) return reply({ ok: false, code: 'BUSY' });
+      pending += 1;
+      tail = tail
+        .then(() => handleSignal(socket, payload, ack))
+        .catch(() => {})
+        .finally(() => {
+          pending -= 1;
+        });
+    });
+    socket.on(EV.HEARTBEAT, (payload: unknown) => {
+      if (data.role !== 'student' || !takeToken(hbBucket, Date.now()) || pending >= maxPending) return;
+      pending += 1;
+      tail = tail
+        .then(() => handleHeartbeat(socket, payload))
+        .catch(() => {})
+        .finally(() => {
+          pending -= 1;
+        });
+    });
 
     if (socket.disconnected) return; // 연결 직후 이미 끊긴 소켓은 등록·타이머를 만들지 않는다(정리할 disconnect 이벤트가 이미 지나갔을 수 있다).
     registerPrincipal(socket, data);

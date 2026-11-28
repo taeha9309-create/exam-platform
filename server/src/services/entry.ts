@@ -11,6 +11,7 @@ import { attemptStatePayload, broadcast, getIo } from '../realtime/broadcast';
 import { normalizeIpKey } from '../security/loginProtection';
 import { createRateLimiter, type RateLimiterOptions } from '../security/rateLimit';
 import { lockExam, runExamTx } from './examLifecycle';
+import { recordServerSignalInTx } from './signals';
 
 /**
  * 학생 입장(F-07)·세션(2.3)·승인(F-14) 서비스.
@@ -337,7 +338,8 @@ export async function resolveApproval(input: ApprovalInput): Promise<Attempt> {
       if (!pending || pending.startsWith(REJECTED_PREFIX) || TERMINAL.has(attempt.state)) throw INVALID_STATE();
       updated = await tx.attempt.update({
         where: { id: attempt.id },
-        data: approved ? { sessionTokenHash: pending, pendingTokenHash: null } : { pendingTokenHash: REJECTED_PREFIX + pending },
+        // 새 기기는 seq를 1부터 다시 센다. lastSeq를 0으로 되돌리지 않으면 새 기기의 신호가 모두 "낮은 seq"로 무시된다.
+        data: approved ? { sessionTokenHash: pending, pendingTokenHash: null, lastSeq: 0 } : { pendingTokenHash: REJECTED_PREFIX + pending },
       });
     }
     await tx.proctorAction.create({ data: { attemptId: attempt.id, staffId: input.staffId, type: input.type, reason: input.reason, payload: {} } });
@@ -431,7 +433,7 @@ export function recordEnv(attempt: Pick<Attempt, 'id' | 'sessionTokenHash'>, env
     if (cur.consentAt === null) throw CONSENT_REQUIRED();
     if (env.isExtended) {
       const existing = await tx.signal.findFirst({ where: { attemptId: cur.id, type: 'MULTI_MONITOR' }, select: { id: true } });
-      if (!existing) await tx.signal.create({ data: { attemptId: cur.id, type: 'MULTI_MONITOR', severity: 'WARN', meta: { source: 'env-check' } } });
+      if (!existing) await recordServerSignalInTx(tx, cur.id, 'MULTI_MONITOR', { source: 'env-check' }, new Date());
     }
     if (cur.envCheckedAt !== null && cur.envBrowser === env.browser && cur.envIsExtended === env.isExtended) return null;
     return { envBrowser: env.browser, envIsExtended: env.isExtended, envCheckedAt: new Date() };
