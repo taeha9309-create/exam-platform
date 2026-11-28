@@ -14,9 +14,16 @@ const TEST_FILE = /\.(test|spec)\.tsx?$/;
 /**
  * 주석만 공백으로 바꾸고 줄 수(개행)는 그대로 둔다.
  * - 블록 주석 /* ... *\/ : 내용을 지우고 개행은 보존한다(같은 줄의 코드는 남긴다).
- * - 줄 주석 // ... : 줄 시작이나 공백 뒤에서만 주석으로 본다. 문자열 안의 URL(http://)은 건드리지 않는다.
+ * - 줄 주석 // ... : 그 줄의 앞이 공백뿐일 때만 주석으로 본다(줄 끝 주석은 주석으로 보지 않아 검사 대상이 된다).
+ *   JSX 텍스트의 "안내 // 금지어"가 통과하지 않도록 하기 위함이다.
  * - 문자열('', "", ``) 안의 내용은 주석으로 보지 않는다.
  */
+/** i 위치 앞에 같은 줄의 내용이 공백뿐인지 본다. */
+function isLineStart(src: string, i: number): boolean {
+  const lineBegin = src.lastIndexOf('\n', i - 1) + 1;
+  return /^\s*$/.test(src.slice(lineBegin, i));
+}
+
 export function stripComments(src: string): string {
   let out = '';
   let state: 'code' | 'sq' | 'dq' | 'tpl' = 'code';
@@ -33,7 +40,7 @@ export function stripComments(src: string): string {
         i = stop;
         continue;
       }
-      if (c === '/' && next === '/' && (i === 0 || /\s/.test(src[i - 1]!))) {
+      if (c === '/' && next === '/' && isLineStart(src, i)) {
         const end = src.indexOf('\n', i);
         const stop = end === -1 ? n : end;
         out += ' '.repeat(stop - i);
@@ -114,6 +121,16 @@ describe('화면 문구', () => {
 
     it('줄 주석 안의 금지어는 통과한다', () => {
       expect(findForbiddenInSource('// 부정행위 설명\nconst a = 1;', FORBIDDEN)).toEqual([]);
+      expect(findForbiddenInSource('  // 커닝\nconst a = 1;', FORBIDDEN)).toEqual([]);
+    });
+
+    it('JSX 텍스트의 공백 뒤 // 는 주석이 아니므로 금지어를 탐지한다', () => {
+      const src = 'export const A = () => <p>안내 // 커닝</p>;';
+      expect(findForbiddenInSource(src, FORBIDDEN)).toEqual([{ line: 1, word: '커닝' }]);
+    });
+
+    it('줄 끝 주석의 금지어도 탐지한다(주석으로 보지 않는다)', () => {
+      expect(findForbiddenInSource('const a = 1; // 적발', FORBIDDEN)).toEqual([{ line: 1, word: '적발' }]);
     });
 
     it('여러 줄 블록 주석 안의 금지어는 통과하고 줄 번호가 유지된다', () => {
