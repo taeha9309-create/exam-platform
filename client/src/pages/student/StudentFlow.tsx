@@ -372,6 +372,7 @@ function StudentSession({ examCode, token, onLeave }: { examCode: string; token:
           deadline={snap.deadline}
           clock={clock}
           violationCount={snap.violationCount}
+          locked={snap.locked}
           connected={connected}
           onRefresh={refreshVoid}
         />

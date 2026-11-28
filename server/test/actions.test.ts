@@ -182,7 +182,7 @@ describe('PAUSE·RESUME (c)', () => {
     expect(res.status).toBe(200);
     expect(res.body.attempt).toMatchObject({ state: 'PAUSED', locked: false });
     expect(res.body.attempt.pausedAt).toEqual(expect.any(Number));
-    expect(events('attempt:state')[0]).toMatchObject({ room: `attempt:${f.attempt.id}`, payload: { state: 'PAUSED' } });
+    expect(events('attempt:state')[0]).toMatchObject({ room: `attempt:${f.attempt.id}`, payload: { state: 'PAUSED', locked: false } });
     expect((await row(f.attempt.id)).pausedAt).not.toBeNull();
 
     const payload = { questionId: f.mcqId, choiceId: 'c1', rev: 1 };
@@ -190,9 +190,22 @@ describe('PAUSE·RESUME (c)', () => {
 
     emitted.length = 0;
     expect((await act(f.attempt.id, { type: 'RESUME', reason: '확인 완료' })).body.attempt).toMatchObject({ state: 'ACTIVE', pausedAt: null });
-    expect(events('attempt:state')[0]).toMatchObject({ payload: { state: 'ACTIVE' } });
+    expect(events('attempt:state')[0]).toMatchObject({ payload: { state: 'ACTIVE', locked: false } });
     expect((await row(f.attempt.id)).pausedAt).toBeNull();
     expect(await saveAnswer(f.attempt.id, hashToken(f.token), payload, new Date())).toMatchObject({ ok: true });
+  });
+});
+
+describe('attempt:state의 locked', () => {
+  it('자동 잠금(AUTO_PAUSE) 중 ADD_TIME은 locked:true를 유지하고, 감독관 RESUME 뒤에는 ACTIVE·locked:false', async () => {
+    const f = await fixture({ state: 'PAUSED', pausedAt: new Date() });
+    await prisma.proctorAction.create({ data: { attemptId: f.attempt.id, staffId: null, type: 'AUTO_PAUSE', reason: '시스템 자동 일시정지(위반 5회)' } });
+    emitted.length = 0;
+    expect((await act(f.attempt.id, { type: 'ADD_TIME', reason: '추가', payload: { minutes: 5 } })).status).toBe(200);
+    expect(events('attempt:state')[0]).toMatchObject({ payload: { state: 'PAUSED', locked: true } });
+    emitted.length = 0;
+    expect((await act(f.attempt.id, { type: 'RESUME', reason: '확인 완료' })).status).toBe(200);
+    expect(events('attempt:state')[0]).toMatchObject({ payload: { state: 'ACTIVE', locked: false } });
   });
 });
 

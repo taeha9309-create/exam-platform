@@ -9,6 +9,8 @@ export interface AttemptView {
   serverNow: number;
   extraSeconds: number;
   violationCount: number;
+  /** attempt:state에만 온다(선택). PAUSED이고 자동 잠금이면 true. 없으면 위반 수로 추정한다. */
+  locked?: boolean;
   needs?: { consent: boolean; env: boolean };
   /** 서버가 아직 주지 않는다(계획 1 서버 계약에 없음). 오면 설문 재표시를 막는 데 쓴다. */
   surveyDone?: boolean;
