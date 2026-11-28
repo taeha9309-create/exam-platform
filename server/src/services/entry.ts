@@ -11,6 +11,7 @@ import { attemptStatePayload, broadcast, getIo } from '../realtime/broadcast';
 import { normalizeIpKey } from '../security/loginProtection';
 import { createRateLimiter, type RateLimiterOptions } from '../security/rateLimit';
 import { lockExam, runExamTx } from './examLifecycle';
+import { recordServerSignalInTx } from './signals';
 
 /**
  * 학생 입장(F-07)·세션(2.3)·승인(F-14) 서비스.
@@ -431,7 +432,7 @@ export function recordEnv(attempt: Pick<Attempt, 'id' | 'sessionTokenHash'>, env
     if (cur.consentAt === null) throw CONSENT_REQUIRED();
     if (env.isExtended) {
       const existing = await tx.signal.findFirst({ where: { attemptId: cur.id, type: 'MULTI_MONITOR' }, select: { id: true } });
-      if (!existing) await tx.signal.create({ data: { attemptId: cur.id, type: 'MULTI_MONITOR', severity: 'WARN', meta: { source: 'env-check' } } });
+      if (!existing) await recordServerSignalInTx(tx, cur.id, 'MULTI_MONITOR', { source: 'env-check' }, new Date());
     }
     if (cur.envCheckedAt !== null && cur.envBrowser === env.browser && cur.envIsExtended === env.isExtended) return null;
     return { envBrowser: env.browser, envIsExtended: env.isExtended, envCheckedAt: new Date() };

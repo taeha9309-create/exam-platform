@@ -134,9 +134,19 @@ describe('GET /api/student/exam', () => {
       else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) (keys.add(k), walk(x));
     };
     walk(res.body);
-    expect([...keys].sort()).toEqual(['answers', 'choiceId', 'choices', 'id', 'points', 'prompt', 'questions', 'rev', 'savedAt', 'text', 'type', 'questionId'].sort());
+    expect([...keys].sort()).toEqual(['answers', 'pasteMode', 'choiceId', 'choices', 'id', 'points', 'prompt', 'questions', 'rev', 'savedAt', 'text', 'type', 'questionId'].sort());
     expect(res.body.answers).toHaveLength(1);
     expect(Object.keys(res.body.answers[0]).sort()).toEqual(['choiceId', 'questionId', 'rev', 'savedAt']);
+  });
+
+  it('pasteMode(RECORD·BLOCK)를 시험 설정대로 내려준다', async () => {
+    for (const pasteMode of ['RECORD', 'BLOCK'] as const) {
+      const f = await fixture({ pasteMode });
+      const { token } = await attemptFor(f);
+      const res = await getExam(token);
+      expect(res.status).toBe(200);
+      expect(res.body.pasteMode).toBe(pasteMode);
+    }
   });
 
   it('두 학생의 questionOrder·choiceOrders가 저장값대로 반환된다', async () => {

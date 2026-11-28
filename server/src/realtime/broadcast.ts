@@ -26,8 +26,13 @@ export function attemptDeadline(attempt: Pick<Attempt, 'extraSeconds'>, exam: Pi
   return exam.endsAt ? exam.endsAt.getTime() + attempt.extraSeconds * 1000 : null;
 }
 
-export function attemptStatePayload(attempt: Attempt, exam: Pick<Exam, 'endsAt'>) {
+/**
+ * 학생에게 보내는 응시 상태. locked는 선택 필드다: 값을 아는 호출자만 넣고(자동 잠금이면 true), 모르면 생략한다.
+ * 생략하면 기존 클라이언트 동작과 같다(필드가 없던 때와 동일).
+ */
+export function attemptStatePayload(attempt: Attempt, exam: Pick<Exam, 'endsAt'>, locked?: boolean) {
   return {
+    ...(locked === undefined ? {} : { locked }),
     state: attempt.state,
     deadline: attemptDeadline(attempt, exam),
     serverNow: Date.now(),
@@ -38,8 +43,8 @@ export function attemptStatePayload(attempt: Attempt, exam: Pick<Exam, 'endsAt'>
 
 export const broadcast = {
   /** 그 응시의 소켓(들)에 현재 상태를 보낸다. */
-  attemptState(attempt: Attempt, exam: Exam): void {
-    getIo().to(attemptRoom(attempt.id)).emit(EV.ATTEMPT_STATE, attemptStatePayload(attempt, exam));
+  attemptState(attempt: Attempt, exam: Exam, locked?: boolean): void {
+    getIo().to(attemptRoom(attempt.id)).emit(EV.ATTEMPT_STATE, attemptStatePayload(attempt, exam, locked));
   },
 
   /** 대기실 인원: ready = 준비 완료(WAITING이고 동의+환경 점검 완료) 응시 수(SPEC F-10), total = 명단 인원. 학생 방과 교수자 방 모두에 보낸다. */
