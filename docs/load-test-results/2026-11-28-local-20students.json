@@ -1,0 +1,52 @@
+{
+  "pass": true,
+  "failures": [],
+  "students": 20,
+  "submitted": 20,
+  "answersPreserved": 20,
+  "http5xx": 0,
+  "staffMissed": [
+    0,
+    0
+  ],
+  "signalsSent": 150,
+  "signalLatencyMs": {
+    "p50": 10.3,
+    "p95": 16.8,
+    "max": 36,
+    "samples": 300
+  },
+  "reconnectedStudents": 4,
+  "details": {
+    "answerAcks": 188,
+    "answerAckFail": 0,
+    "signalAckFail": 0,
+    "ackBusy": 0,
+    "ackInternal": 0,
+    "heartbeatsSent": 360,
+    "staffServerSignalsReceived": [
+      5,
+      5
+    ],
+    "studentNotes": []
+  },
+  "params": {
+    "runSec": 90,
+    "signalEverySec": 12,
+    "answerEverySec": 10,
+    "staffSockets": 2
+  },
+  "timingMs": {
+    "entry": 5266,
+    "total": 100474
+  },
+  "environment": {
+    "node": "v24.20.0",
+    "platform": "win32 x64",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700F x20",
+    "memoryGB": 32,
+    "db": "PostgreSQL 16 (docker, 로컬)",
+    "server": "node 직접 실행(tsx, 같은 PC), 같은 PC에서 클라이언트 실행"
+  },
+  "measuredAt": "2026-11-28T14:52:51.152Z"
+}
