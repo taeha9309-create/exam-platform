@@ -22,6 +22,13 @@ type Tx = Prisma.TransactionClient;
 
 export const SIGNAL_META_MAX_BYTES = 2048;
 export const SIGNAL_DURATION_MAX_MS = 3_600_000;
+/**
+ * 응시 하나가 저장하는 클라이언트 신호 행(seq가 있는 행)의 상한. 넘으면 위반이 아닌 신호는 ok로 받되 저장하지 않는다(DB 증식 방지).
+ * ACTIVE에서 위반으로 세는 신호는 상한과 무관하게 처리한다(자동 잠금에 닿으면 PAUSED가 되어 더는 위반으로 세지 않으므로 자연히 제한된다).
+ */
+export const MAX_CLIENT_SIGNALS_PER_ATTEMPT = 2000;
+/** 상한 초과를 이미 로그로 남긴 응시(로그 폭주 방지). 프로세스 메모리에만 있고 크기를 제한한다. */
+const capLogged = new Set<string>();
 /** seq는 PostgreSQL INT(32비트)다. */
 const MAX_SEQ = 2_147_483_647;
 /** clientAt 상한(2100-01-01). Date·PostgreSQL이 다룰 수 있는 범위 안으로 제한한다. */
@@ -207,6 +214,21 @@ export async function recordClientSignal(attemptId: string, tokenHash: string, p
 
     if (parsed.seq <= cur.lastSeq) return { res: { ok: true } }; // 중복·오래된 seq: 무시
 
+    const violation = countsAsViolation(parsed.type, parsed.durationMs, cur.state as 'ACTIVE');
+    if (!violation) {
+      const stored = await tx.signal.count({ where: { attemptId, seq: { not: null } }, take: MAX_CLIENT_SIGNALS_PER_ATTEMPT });
+      if (stored >= MAX_CLIENT_SIGNALS_PER_ATTEMPT) {
+        // 저장하지 않고 seq만 처리한다(클라이언트 큐가 막히지 않게). SEQ_GAP도 남기지 않는다.
+        await tx.attempt.update({ where: { id: attemptId }, data: { lastSeq: parsed.seq } });
+        if (!capLogged.has(attemptId)) {
+          if (capLogged.size >= 10_000) capLogged.clear();
+          capLogged.add(attemptId);
+          console.warn('응시당 신호 저장 상한 초과: 이후 신호는 저장하지 않음', attemptId);
+        }
+        return { res: { ok: true } };
+      }
+    }
+
     if (parsed.questionId !== null) {
       const q = await tx.question.findFirst({ where: { id: parsed.questionId, examId: cur.examId }, select: { id: true } });
       if (!q) return { res: { ok: false, code: 'INVALID' } };
@@ -245,7 +267,7 @@ export async function recordClientSignal(attemptId: string, tokenHash: string, p
     outcome.signals.push(signal);
 
     const data: Prisma.AttemptUpdateInput = { lastSeq: parsed.seq, unackedSeverity: maxSeverity(cur.unackedSeverity, severity) };
-    if (countsAsViolation(parsed.type, parsed.durationMs, cur.state as 'ACTIVE')) {
+    if (violation) {
       const count = cur.violationCount + 1;
       data.violationCount = count;
       outcome.violation = { count, type: parsed.type };

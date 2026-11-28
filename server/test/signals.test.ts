@@ -4,8 +4,9 @@ import { io as connect, type Socket } from 'socket.io-client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateToken, hashToken } from '../src/auth/studentSession';
 import { prisma } from '../src/db';
+import { resolveApproval } from '../src/services/entry';
 import { lockExam, runExamTx } from '../src/services/examLifecycle';
-import { parseClientSignal, recordClientSignal, recordHeartbeat, recordServerSignal } from '../src/services/signals';
+import { MAX_CLIENT_SIGNALS_PER_ATTEMPT, parseClientSignal, recordClientSignal, recordHeartbeat, recordServerSignal } from '../src/services/signals';
 import { staffCookie } from './helpers/auth';
 import { makeExam, makeStaff, resetDb } from './helpers/db';
 import { startTestServer } from './helpers/server';
@@ -427,5 +428,98 @@ describe('속도 제한과 연결 상태', () => {
     expect(list.map((x) => [x.type, x.severity, x.seq])).toEqual([['RECONNECT', 'INFO', null], ['DISCONNECT', 'WARN', null]]);
     expect((await reload(a.attempt.id)).unackedSeverity).toBe('WARN');
     expect(await signalsOf(done.attempt.id)).toHaveLength(0);
+  });
+});
+
+describe('PR #94 리뷰 반영', () => {
+  it('[high] 기기 교체 승인 뒤 새 기기는 seq 1부터 저장·카운트되고 옛 토큰은 NOT_ACTIVE', async () => {
+    const fx = await fixture();
+    const { attempt, token: oldToken } = await makeAttempt(fx, { lastSeq: 300 });
+    const newToken = generateToken();
+    await prisma.attempt.update({ where: { id: attempt.id }, data: { pendingTokenHash: hashToken(newToken) } });
+    await resolveApproval({ attemptId: attempt.id, staffId: fx.staffId, type: 'APPROVE_SESSION', reason: '기기 교체' });
+    expect((await reload(attempt.id)).lastSeq).toBe(0);
+    const fresh = await studentSocket(newToken);
+    expect(await send(fresh, sig('FULLSCREEN_EXIT', {}, 1))).toEqual({ ok: true });
+    expect(await reload(attempt.id)).toMatchObject({ lastSeq: 1, violationCount: 1 });
+    expect(await signalsOf(attempt.id)).toHaveLength(1);
+    expect(await recordClientSignal(attempt.id, hashToken(oldToken), sig('FULLSCREEN_EXIT', {}, 2), new Date())).toEqual({ ok: false, code: 'NOT_ACTIVE', revoked: true });
+  });
+
+  it('[medium] 응시당 저장 상한: 초과한 일반 신호는 ok지만 저장하지 않고 seq만 처리, 위반은 계속 카운트·저장', async () => {
+    const fx = await fixture();
+    const { attempt, token } = await makeAttempt(fx);
+    await prisma.signal.createMany({
+      data: Array.from({ length: MAX_CLIENT_SIGNALS_PER_ATTEMPT }, (_, i) => ({ attemptId: attempt.id, type: 'LEAVE_START' as const, severity: 'WARN' as const, seq: i + 1 })),
+    });
+    await prisma.attempt.update({ where: { id: attempt.id }, data: { lastSeq: MAX_CLIENT_SIGNALS_PER_ATTEMPT } });
+    const stu = await studentSocket(token);
+    const n = MAX_CLIENT_SIGNALS_PER_ATTEMPT;
+    expect(await send(stu, sig('LEAVE_START', {}, n + 1))).toEqual({ ok: true });
+    expect(await send(stu, sig('PASTE', {}, n + 5))).toEqual({ ok: true }); // ACTIVE의 PASTE는 위반이라 상한과 무관
+    expect(await prisma.signal.count({ where: { attemptId: attempt.id } })).toBe(n + 2); // PASTE 1건 + 위반 처리 중 생긴 SEQ_GAP 1건(일반 신호는 SEQ_GAP도 남기지 않는다)
+    expect(await reload(attempt.id)).toMatchObject({ lastSeq: n + 5, violationCount: 1 });
+    // 상한 초과 뒤에도 seq는 진행하므로 같은 seq 재전송은 무시된다
+    expect(await send(stu, sig('LEAVE_START', {}, n + 2))).toEqual({ ok: true });
+    expect(await prisma.signal.count({ where: { attemptId: attempt.id } })).toBe(n + 2);
+    for (let i = 0; i < 4; i++) await send(stu, sig('FULLSCREEN_EXIT', {}, n + 6 + i));
+    expect(await reload(attempt.id)).toMatchObject({ violationCount: 5, state: 'PAUSED' });
+    expect(await actionsOf(attempt.id)).toHaveLength(1);
+  });
+
+  it('[medium] 속도 제한은 응시 단위: 소켓 3개를 써도 합쳐서 버스트 30', async () => {
+    const fx = await fixture();
+    const { token } = await makeAttempt(fx);
+    const socks = await Promise.all([studentSocket(token), studentSocket(token), studentSocket(token)]);
+    const acks = await Promise.all(socks.flatMap((s, k) => Array.from({ length: 20 }, (_, i) => send(s, sig('LEAVE_START', {}, k * 20 + i + 1)))));
+    const ok = acks.filter((a) => a.ok).length;
+    expect(ok + acks.filter((a) => a.code === 'BUSY').length).toBe(60);
+    expect(ok).toBeGreaterThanOrEqual(30);
+    expect(ok).toBeLessThanOrEqual(34);
+  });
+
+  it('[low] 자동 잠금은 5의 배수에서만: RESUME 뒤 6번째는 ACTIVE 유지, 10번째에서 다시 잠금(AUTO_PAUSE 2건)', async () => {
+    const fx = await fixture();
+    const { attempt, token } = await makeAttempt(fx);
+    const stu = await studentSocket(token);
+    let seq = 0;
+    for (let i = 0; i < 5; i++) await send(stu, sig('FULLSCREEN_EXIT', {}, ++seq));
+    expect((await reload(attempt.id)).state).toBe('PAUSED');
+    await prisma.attempt.update({ where: { id: attempt.id }, data: { state: 'ACTIVE', pausedAt: null } }); // 감독관 RESUME 상당
+    await send(stu, sig('FULLSCREEN_EXIT', {}, ++seq));
+    expect(await reload(attempt.id)).toMatchObject({ violationCount: 6, state: 'ACTIVE' });
+    for (let i = 0; i < 3; i++) await send(stu, sig('FULLSCREEN_EXIT', {}, ++seq));
+    expect(await reload(attempt.id)).toMatchObject({ violationCount: 9, state: 'ACTIVE' });
+    await send(stu, sig('FULLSCREEN_EXIT', {}, ++seq));
+    expect(await reload(attempt.id)).toMatchObject({ violationCount: 10, state: 'PAUSED' });
+    expect((await actionsOf(attempt.id)).map((a) => a.reason).sort()).toEqual(['시스템 자동 일시정지(위반 10회)', '시스템 자동 일시정지(위반 5회)']);
+  });
+
+  it('[low] 형식 오류는 대기열을 기다리지 않고 즉시 INVALID, 대기 상한을 넘으면 BUSY', async () => {
+    const sv = await startTestServer({ maxPendingPerSocket: 1 });
+    try {
+      const fx = await fixture();
+      const { attempt, token } = await makeAttempt(fx);
+      const s = connect(sv.url, { auth: { sessionToken: token }, transports: ['polling'], reconnection: false, forceNew: true });
+      sockets.push(s);
+      await once(s, EV.ATTEMPT_STATE);
+      // 응시 행을 잡아 첫 신호를 DB에서 붙잡아 둔다.
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      const holder = prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "Attempt" WHERE "id" = ${attempt.id} FOR UPDATE`;
+        await gate;
+      });
+      await sleep(200);
+      const first = send(s, sig('LEAVE_START', {}, 1)); // 처리 중(대기 1)
+      await sleep(200);
+      expect(await send(s, sig('NOPE', {}, 2))).toEqual({ ok: false, code: 'INVALID' }); // 막힌 대기열과 무관하게 즉시
+      expect(await send(s, sig('LEAVE_START', {}, 3))).toEqual({ ok: false, code: 'BUSY' });
+      release();
+      await holder;
+      expect(await first).toEqual({ ok: true });
+    } finally {
+      await sv.close();
+    }
   });
 });

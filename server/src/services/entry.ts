@@ -338,7 +338,8 @@ export async function resolveApproval(input: ApprovalInput): Promise<Attempt> {
       if (!pending || pending.startsWith(REJECTED_PREFIX) || TERMINAL.has(attempt.state)) throw INVALID_STATE();
       updated = await tx.attempt.update({
         where: { id: attempt.id },
-        data: approved ? { sessionTokenHash: pending, pendingTokenHash: null } : { pendingTokenHash: REJECTED_PREFIX + pending },
+        // 새 기기는 seq를 1부터 다시 센다. lastSeq를 0으로 되돌리지 않으면 새 기기의 신호가 모두 "낮은 seq"로 무시된다.
+        data: approved ? { sessionTokenHash: pending, pendingTokenHash: null, lastSeq: 0 } : { pendingTokenHash: REJECTED_PREFIX + pending },
       });
     }
     await tx.proctorAction.create({ data: { attemptId: attempt.id, staffId: input.staffId, type: input.type, reason: input.reason, payload: {} } });
