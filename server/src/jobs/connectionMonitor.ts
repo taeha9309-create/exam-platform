@@ -98,7 +98,7 @@ export async function checkConnections(nowMs: number, deps: Partial<CheckDeps> =
   // 종료·제출된 응시는 감시하지 않는다. 소켓이 남아 있는 항목은 둔다(대기실에서 연결한 학생이 시작 뒤에 장부에 없어 끊긴 것으로 보이면 안 된다).
   for (const [id, e] of a.book) if (!alive.has(id) && e.sockets === 0) a.book.delete(id);
 
-  type Due = { attemptId: string; examId: string; type: 'DISCONNECT' | 'HEARTBEAT_GAP'; meta: object; commit: () => void };
+  type Due = { attemptId: string; examId: string; type: 'DISCONNECT' | 'HEARTBEAT_GAP'; meta: object; commit: () => void; stillDue: () => boolean };
   const due: Due[] = [];
   for (const r of rows) {
     let e = a.book.get(r.id);
@@ -111,13 +111,13 @@ export async function checkConnections(nowMs: number, deps: Partial<CheckDeps> =
     if (entry.sockets === 0) {
       if (entry.offlineSince !== null && !entry.disconnectRecorded && nowMs - entry.offlineSince >= DISCONNECT_GRACE_MS) {
         const offlineMs = nowMs - entry.offlineSince;
-        due.push({ attemptId: r.id, examId: r.examId, type: 'DISCONNECT', meta: { offlineMs }, commit: () => (entry.disconnectRecorded = true) });
+        due.push({ attemptId: r.id, examId: r.examId, type: 'DISCONNECT', meta: { offlineMs }, commit: () => (entry.disconnectRecorded = true), stillDue: () => entry.sockets === 0 && !entry.disconnectRecorded });
       }
       continue;
     }
     const reference = Math.max(r.lastHeartbeatAt?.getTime() ?? 0, entry.connectedAt);
     if (nowMs - reference >= HEARTBEAT_GAP_MS && entry.gapRecordedFor !== reference) {
-      due.push({ attemptId: r.id, examId: r.examId, type: 'HEARTBEAT_GAP', meta: { gapMs: nowMs - reference }, commit: () => (entry.gapRecordedFor = reference) });
+      due.push({ attemptId: r.id, examId: r.examId, type: 'HEARTBEAT_GAP', meta: { gapMs: nowMs - reference }, commit: () => (entry.gapRecordedFor = reference), stillDue: () => entry.sockets > 0 && entry.gapRecordedFor !== reference });
     }
   }
 
@@ -133,8 +133,10 @@ export async function checkConnections(nowMs: number, deps: Partial<CheckDeps> =
   }
 
   for (const d of due) {
+    if (!d.stillDue()) continue; // 계산 뒤 재연결 등으로 상황이 바뀌었다
     try {
-      await recordServerSignal(d.attemptId, d.type, d.meta, () => new Date(a.clock()), { suppressSeverity: suppress.has(d.attemptId) });
+      // guard: 응시 행 잠금 뒤에도 한 번 더 확인한다(점검의 await 사이에 재연결한 학생에게 낡은 DISCONNECT를 남기지 않는다).
+      await recordServerSignal(d.attemptId, d.type, d.meta, () => new Date(a.clock()), { suppressSeverity: suppress.has(d.attemptId), guard: d.stillDue });
       d.commit();
     } catch (err) {
       log('연결 감시 신호 저장 실패(다음 점검에 다시 시도)', d.attemptId, err instanceof Error ? err.message : 'unknown');

@@ -27,6 +27,12 @@ export const SIGNAL_DURATION_MAX_MS = 3_600_000;
  * ACTIVE에서 위반으로 세는 신호는 상한과 무관하게 처리한다(자동 잠금에 닿으면 PAUSED가 되어 더는 위반으로 세지 않으므로 자연히 제한된다).
  */
 export const MAX_CLIENT_SIGNALS_PER_ATTEMPT = 2000;
+/**
+ * 응시 하나가 저장하는 서버 전용 신호 행(seq 없는 DISCONNECT·RECONNECT·HEARTBEAT_GAP·SEQ_GAP·MULTI_MONITOR)의 상한.
+ * 연결↔종료를 반복해 RECONNECT 등이 무한히 쌓이는 것을 막는다. 넘으면 recordServerSignal은 저장도 알림도 하지 않는다.
+ * 정상 학생의 끊김은 수십 회 수준이라 영향이 없다.
+ */
+export const MAX_SERVER_SIGNALS_PER_ATTEMPT = 500;
 /** 상한 초과를 이미 로그로 남긴 응시(로그 폭주 방지). 프로세스 메모리에만 있고 크기를 제한한다. */
 const capLogged = new Set<string>();
 /** seq는 PostgreSQL INT(32비트)다. */
@@ -296,11 +302,14 @@ export async function recordServerSignal(
   type: ServerSignalType,
   meta: object,
   now: NowArg,
-  options: { suppressSeverity?: boolean } = {},
+  options: { suppressSeverity?: boolean; guard?: () => boolean } = {},
 ): Promise<void> {
   const out = await runExamTx(async (tx) => {
     const cur = await lockAttempt(tx, attemptId);
     if (!cur || TERMINAL.has(cur.state)) return null;
+    if (options.guard && !options.guard()) return null; // 잠금을 얻은 뒤 조건 재확인(호출자가 계산한 뒤 상황이 바뀌었을 수 있다)
+    const stored = await tx.signal.count({ where: { attemptId, seq: null }, take: MAX_SERVER_SIGNALS_PER_ATTEMPT });
+    if (stored >= MAX_SERVER_SIGNALS_PER_ATTEMPT) return null;
     const signal = await insertServerSignal(tx, cur, type, meta, typeof now === 'function' ? now() : now, options.suppressSeverity === true);
     return { examId: cur.examId, signals: [signal] } satisfies Outcome;
   });

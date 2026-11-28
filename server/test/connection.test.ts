@@ -6,7 +6,7 @@ import { generateToken, hashToken } from '../src/auth/studentSession';
 import { prisma } from '../src/db';
 import { checkConnections, startConnectionMonitor, studentSocketConnected, studentSocketDisconnected } from '../src/jobs/connectionMonitor';
 import { loadDashboardSnapshot, loadNetworkIncident } from '../src/services/dashboard';
-import { MAX_CLIENT_SIGNALS_PER_ATTEMPT, recordHeartbeat } from '../src/services/signals';
+import { MAX_CLIENT_SIGNALS_PER_ATTEMPT, MAX_SERVER_SIGNALS_PER_ATTEMPT, recordHeartbeat } from '../src/services/signals';
 import { staffCookie } from './helpers/auth';
 import { makeExam, makeStaff, resetDb } from './helpers/db';
 import { startTestServer } from './helpers/server';
@@ -397,5 +397,57 @@ describe('recordHeartbeat의 SEQ_GAP 행 상한', () => {
     await recordHeartbeat(a.id, MAX_CLIENT_SIGNALS_PER_ATTEMPT + 50, () => new Date(t));
     expect(await prisma.signal.count({ where: { attemptId: a.id } })).toBe(before);
     expect((await prisma.attempt.findUniqueOrThrow({ where: { id: a.id } })).lastSeq).toBe(MAX_CLIENT_SIGNALS_PER_ATTEMPT + 50);
+  });
+});
+
+describe('서버 신호 행 상한과 재연결 경쟁', () => {
+  async function seedServerSignals(attemptId: string, n: number) {
+    await prisma.signal.createMany({ data: Array.from({ length: n }, () => ({ attemptId, type: 'RECONNECT' as const, severity: 'INFO' as const })) });
+  }
+
+  it('상한 직전까지는 RECONNECT가 정상 기록된다', async () => {
+    const fx = await fixture();
+    const [a] = await makeAttempts(fx.exam, 1);
+    await seedServerSignals(a!.id, MAX_SERVER_SIGNALS_PER_ATTEMPT - 1);
+    await studentSocketConnected(a!.id);
+    studentSocketDisconnected(a!.id);
+    await studentSocketConnected(a!.id);
+    expect(await prisma.signal.count({ where: { attemptId: a!.id } })).toBe(MAX_SERVER_SIGNALS_PER_ATTEMPT);
+  });
+
+  it('상한 도달 뒤 연결·종료를 반복해도 행 수가 늘지 않고 교수자 이벤트도 없다', async () => {
+    const fx = await fixture();
+    const [a] = await makeAttempts(fx.exam, 1);
+    await seedServerSignals(a!.id, MAX_SERVER_SIGNALS_PER_ATTEMPT);
+    const staff = await staffListener(fx);
+    const events: unknown[] = [];
+    staff.socket.on(EV.SIGNAL_NEW, (v: unknown) => events.push(v));
+    await studentSocketConnected(a!.id);
+    for (let i = 0; i < 5; i++) {
+      studentSocketDisconnected(a!.id);
+      await studentSocketConnected(a!.id);
+    }
+    await sleep(200);
+    expect(await prisma.signal.count({ where: { attemptId: a!.id } })).toBe(MAX_SERVER_SIGNALS_PER_ATTEMPT);
+    expect(events).toHaveLength(0);
+  });
+
+  it('점검이 DISCONNECT를 계산한 뒤 학생이 재연결하면 낡은 DISCONNECT를 남기지 않는다', async () => {
+    const fx = await fixture(7);
+    const [a, ...others] = await makeAttempts(fx.exam, 10);
+    for (const o of others) await studentSocketConnected(o.id);
+    await studentSocketConnected(a!.id);
+    studentSocketDisconnected(a!.id);
+    advance(DISCONNECT_GRACE_MS + 1000);
+    for (const o of others) await beat(o.id);
+    const real = prisma.attempt.groupBy.bind(prisma.attempt) as (...args: unknown[]) => unknown;
+    const spy = vi.spyOn(prisma.attempt, 'groupBy').mockImplementationOnce(((...args: unknown[]) => {
+      // 점검이 후보를 계산한 직후(장애 판정을 읽는 중)에 학생이 다시 붙는다.
+      return studentSocketConnected(a!.id).then(() => real(...args));
+    }) as never);
+    await check();
+    spy.mockRestore();
+    expect(await signalsOf(a!.id, 'DISCONNECT')).toHaveLength(0);
+    expect(await signalsOf(a!.id, 'RECONNECT')).toHaveLength(1);
   });
 });
