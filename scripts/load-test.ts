@@ -24,7 +24,7 @@ import { io, type Socket } from 'socket.io-client';
 import { hashPassword } from '../server/src/auth/staffAuth';
 import { prisma } from '../server/src/db';
 import { generateExamCode } from '../server/src/domain/codes';
-import { assertLoadDatabase, countMissed, evaluate, parseLoadArgs, summarizeLatencies, type LoadArgs } from './load-test-lib';
+import { assertLoadDatabase, countMissed, describeEnvironment, evaluate, once, parseLoadArgs, summarizeLatencies, type LoadArgs } from './load-test-lib';
 
 const PASSCODE = '246810';
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -48,6 +48,9 @@ const sentKeys: string[] = []; // ack ok를 받은 신호 키
 const staffReceived: Set<string>[] = [new Set(), new Set()];
 const staffServerSignals = [0, 0];
 const latencies: number[] = [];
+const openSockets = new Set<Socket>();
+/** 중단 신호: 시작 실패·예외 때 학생 루프가 더 돌지 않고 끝나게 한다 */
+let aborted = false;
 
 // ───────────────────────── HTTP ─────────────────────────
 let BASE = '';
@@ -56,7 +59,7 @@ async function http(method: string, path: string, opts: { body?: unknown; token?
   if (opts.body !== undefined) headers['content-type'] = 'application/json';
   if (opts.token) headers.authorization = `Bearer ${opts.token}`;
   if (opts.cookie) headers.cookie = opts.cookie;
-  const res = await fetch(`${BASE}${path}`, { method, headers, body: opts.body === undefined ? undefined : JSON.stringify(opts.body) });
+  const res = await fetch(`${BASE}${path}`, { method, headers, body: opts.body === undefined ? undefined : JSON.stringify(opts.body), signal: AbortSignal.timeout(30_000) });
   if (res.status >= 500) counters.http5xx += 1;
   const text = await res.text();
   let json: any = null;
@@ -71,6 +74,7 @@ async function http(method: string, path: string, opts: { body?: unknown; token?
 function connect(auth: object | undefined, cookie?: string): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const s = io(BASE, { transports: ['websocket'], reconnection: false, auth: auth ?? {}, extraHeaders: cookie ? { cookie } : undefined, forceNew: true });
+    openSockets.add(s); // 예외·중단 때 main의 finally가 열린 소켓을 모두 닫는다
     s.once('connect', () => resolve(s));
     s.once('connect_error', (e) => {
       s.close();
@@ -87,7 +91,7 @@ function emitAck(s: Socket, event: string, payload: unknown, timeoutMs = 10_000)
 }
 
 // ───────────────────────── 시드 ─────────────────────────
-async function seed(n: number) {
+async function seed(n: number, onStaffCreated: (staffId: string) => void) {
   const staffPassword = randomBytes(12).toString('base64url');
   const email = `load-${randomBytes(4).toString('hex')}@exam.local`;
   const passwordHash = await hashPassword(staffPassword);
@@ -103,6 +107,7 @@ async function seed(n: number) {
   ];
   const roster = Array.from({ length: n }, (_, i) => ({ studentNo: `202691${String(i + 1).padStart(3, '0')}`, name: `부하${i + 1}` }));
   const staff = await prisma.staff.create({ data: { email, name: '부하 시험 교수자', passwordHash } });
+  onStaffCreated(staff.id); // 이후 시험 생성이 실패해도 main의 finally가 교수자를 지울 수 있게 먼저 알린다
   const exam = await prisma.exam.create({
     data: {
       ownerId: staff.id,
@@ -159,13 +164,27 @@ const SIGNAL_PLAN = (k: number): { type: string; durationMs?: number; meta?: obj
   }
 };
 
-async function runStudent(idx: number, e: { examCode: string; studentNo: string }, args: LoadArgs, gate: { enteredCount: () => void; start: Promise<void> }): Promise<Result> {
+/** 가상 학생 한 명. 어떤 예외가 나도 던지지 않고 실패 결과를 돌려주며, 입장 집계(gate)는 정확히 한 번 호출한다(안 부르면 교수자 시작이 영원히 대기한다). */
+async function runStudent(idx: number, e: { examCode: string; studentNo: string }, args: LoadArgs, gate: { enteredCount: () => void; start: Promise<boolean> }): Promise<Result> {
   const r: Result = { studentNo: e.studentNo, submitted: false, answersPreserved: false, signalsSent: 0, answersSent: 0, reconnected: false };
+  const markEntered = once(gate.enteredCount);
+  try {
+    await runStudentSteps(idx, e, args, { enteredCount: markEntered, start: gate.start }, r);
+  } catch (err) {
+    r.submitted = false;
+    r.note = `예외: ${err instanceof Error ? err.message : 'unknown'}`;
+  } finally {
+    markEntered();
+  }
+  return r;
+}
+
+async function runStudentSteps(idx: number, e: { examCode: string; studentNo: string }, args: LoadArgs, gate: { enteredCount: () => void; start: Promise<boolean> }, r: Result): Promise<void> {
   const entry = await http('POST', '/api/student/confirm', { body: { examCode: e.examCode, studentNo: e.studentNo, passcode: PASSCODE } });
   if (entry.status !== 200 || !entry.json?.sessionToken) {
     r.note = `입장 실패 HTTP ${entry.status} ${entry.json?.error?.code ?? ''}`;
     gate.enteredCount();
-    return r;
+    return;
   }
   const token: string = entry.json.sessionToken;
   const attemptId: string = entry.json.attempt.id;
@@ -174,7 +193,7 @@ async function runStudent(idx: number, e: { examCode: string; studentNo: string 
   if (c1.status !== 200 || c2.status !== 200) {
     r.note = `동의·환경 점검 실패 ${c1.status}/${c2.status}`;
     gate.enteredCount();
-    return r;
+    return;
   }
 
   let sock = await connect({ sessionToken: token });
@@ -192,14 +211,17 @@ async function runStudent(idx: number, e: { examCode: string; studentNo: string 
   };
   watch(sock);
   gate.enteredCount();
-  await gate.start;
+  if (!(await gate.start)) {
+    r.note = '시험이 시작되지 않아 중단';
+    return;
+  }
   // 시작 알림(exam:started·attempt:state)을 놓쳤을 때를 대비해 최대 10초 기다린 뒤 HTTP로 확인한다.
   for (let i = 0; i < 100 && !active; i++) await sleep(100);
   const ex = await http('GET', '/api/student/exam', { token });
   if (ex.status !== 200) {
     r.note = `문항 조회 실패 HTTP ${ex.status}`;
     sock.close();
-    return r;
+    return;
   }
   const questions: Question[] = ex.json.questions;
 
@@ -242,7 +264,7 @@ async function runStudent(idx: number, e: { examCode: string; studentNo: string 
     return false;
   };
 
-  while (performance.now() < endMs) {
+  while (performance.now() < endMs && !aborted) {
     const t = performance.now();
     if (outage && !outage.done && t >= outage.at) {
       outage.done = true;
@@ -295,7 +317,8 @@ async function runStudent(idx: number, e: { examCode: string; studentNo: string 
   const check = await http('GET', '/api/student/exam', { token });
   if (check.status === 200) {
     const saved = new Map<string, { rev: number; choiceId?: string; text?: string }>((check.json.answers as any[]).map((a) => [a.questionId, a]));
-    r.answersPreserved = [...expected].every(([qid, v]) => {
+    // 보낸 답안이 하나도 없으면 every가 빈 비교로 참이 되므로 전제로 answersSent > 0을 요구한다.
+    r.answersPreserved = r.answersSent > 0 && [...expected].every(([qid, v]) => {
       const s = saved.get(qid);
       return !!s && s.rev === v.rev && s.choiceId === v.choiceId && s.text === v.text;
     });
@@ -306,7 +329,6 @@ async function runStudent(idx: number, e: { examCode: string; studentNo: string 
   r.submitted = sub.status === 200 && sub.json?.state === 'SUBMITTED';
   if (!r.submitted) r.note = `제출 실패 HTTP ${sub.status} ${sub.json?.error?.code ?? sub.json?.state ?? ''}`;
   sock.close();
-  return r;
 }
 
 // ───────────────────────── 메인 ─────────────────────────
@@ -328,10 +350,11 @@ async function main(): Promise<number> {
 
   let staffId: string | undefined;
   const staffSockets: Socket[] = [];
+  let students: Promise<Result>[] = [];
+  let openGate: (ok: boolean) => void = () => {};
   const t0 = performance.now();
   try {
-    const s = await seed(args.students);
-    staffId = s.staffId;
+    const s = await seed(args.students, (id) => (staffId = id));
     console.log(`시드 완료: 학생 ${args.students}명, 시험 코드 ${s.examCode}`);
 
     const login = await http('POST', '/api/staff/login', { body: { email: s.email, password: s.staffPassword } });
@@ -342,6 +365,8 @@ async function main(): Promise<number> {
     const attemptIds = new Set<string>();
     for (let i = 0; i < 2; i++) {
       const sock = await connect(undefined, setCookie);
+      // 지연 기준: 학생이 emit하기 직전(performance.now) → 교수자 소켓의 signal:new 핸들러 진입. 서버가 신호를 받은 시각이 아니라
+      // 학생 쪽에서 보낸 시각부터 재므로 SPEC 9장의 "서버 수신 → 대시보드 표시"보다 보수적(더 긴) 값이다(클라이언트 전송·ack 대기 전 구간 포함).
       sock.on('signal:new', (p: { attemptId: string; signal: { clientAt: number | null; seq?: number } }) => {
         const at = performance.now();
         const key = p.signal.clientAt === null ? null : `${p.attemptId}:${p.signal.clientAt}`;
@@ -362,9 +387,8 @@ async function main(): Promise<number> {
 
     // 학생 입장·대기. 모두 입장을 마치면 교수자가 시험을 시작한다.
     let entered = 0;
-    let openGate!: () => void;
     let allEnteredResolve!: () => void;
-    const start = new Promise<void>((r) => (openGate = r));
+    const start = new Promise<boolean>((r) => (openGate = r));
     const allEntered = new Promise<void>((r) => (allEnteredResolve = r));
     const gate = {
       enteredCount: () => {
@@ -373,14 +397,14 @@ async function main(): Promise<number> {
       },
       start,
     };
-    const students = s.roster.map((rs, idx) => runStudent(idx, { examCode: s.examCode, studentNo: rs.studentNo }, args, gate));
+    students = s.roster.map((rs, idx) => runStudent(idx, { examCode: s.examCode, studentNo: rs.studentNo }, args, gate));
     await allEntered;
     await sleep(500);
     const tEntry = performance.now();
     console.log(`입장 완료(${Math.round(tEntry - t0)}ms). 교수자가 시험을 시작합니다.`);
     const started = await http('POST', `/api/exams/${s.examId}/start`, { cookie: setCookie });
     if (started.status !== 200) throw new Error(`시험 시작 실패 HTTP ${started.status}`);
-    openGate();
+    openGate(true);
     const results = await Promise.all(students);
     await sleep(3000); // 마지막 신호의 알림이 도착할 시간
     const tEnd = performance.now();
@@ -389,7 +413,7 @@ async function main(): Promise<number> {
     const lat = summarizeLatencies(latencies);
     const submitted = results.filter((x) => x.submitted).length;
     const answersPreserved = results.filter((x) => x.answersPreserved).length;
-    const verdict = evaluate({ students: args.students, submitted, http5xx: counters.http5xx, staffMissed, signalCount: sentKeys.length, p95: lat.p95, answersPreserved });
+    const verdict = evaluate({ students: args.students, submitted, http5xx: counters.http5xx, staffMissed, signalCount: sentKeys.length, p95: lat.p95, answersPreserved, answerAckFail: counters.answerAckFail, signalAckFail: counters.signalAckFail, answersSent: results.reduce((n, x) => n + x.answersSent, 0) });
     if (counters.ackInternal > 0) {
       verdict.failures.push(`소켓 ack INTERNAL ${counters.ackInternal}건(서버 내부 오류)`);
       verdict.pass = false;
@@ -418,7 +442,7 @@ async function main(): Promise<number> {
       },
       params: { runSec: args.runSec, signalEverySec: args.signalEverySec, answerEverySec: args.answerEverySec, staffSockets: 2 },
       timingMs: { entry: Math.round(tEntry - t0), total: Math.round(tEnd - t0) },
-      environment: { node: process.version, platform: `${process.platform} ${process.arch}`, cpu: `${cpus()[0]?.model.trim() ?? 'unknown'} x${cpus().length}`, memoryGB: Math.round(totalmem() / 2 ** 30), db: 'PostgreSQL 16 (docker, 로컬)', server: 'node 직접 실행(tsx, 같은 PC), 같은 PC에서 클라이언트 실행' },
+      environment: { node: process.version, platform: `${process.platform} ${process.arch}`, cpu: `${cpus()[0]?.model.trim() ?? 'unknown'} x${cpus().length}`, memoryGB: Math.round(totalmem() / 2 ** 30), ...describeEnvironment(BASE, process.env.DATABASE_URL!) },
       measuredAt: new Date().toISOString(),
     };
     const json = JSON.stringify(summary, null, 2);
@@ -433,7 +457,12 @@ async function main(): Promise<number> {
     console.error(`측정 중 오류: ${(e as Error).message}`);
     return 1;
   } finally {
-    for (const sock of staffSockets) sock.close();
+    // 시작 실패·예외 때도: 대기 중인 학생을 깨워 중단시키고(aborted), 끝나길 기다린 뒤 모든 소켓을 닫고 시드 데이터를 지운다.
+    aborted = true;
+    openGate(false);
+    await Promise.allSettled(students);
+    for (const sock of [...openSockets, ...staffSockets]) sock.close();
+    openSockets.clear();
     try {
       await cleanup(staffId);
     } catch (e) {
