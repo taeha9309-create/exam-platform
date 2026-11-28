@@ -119,6 +119,9 @@ test('핵심 흐름: 입장 → 시작 → 응시·저장 → 제출·설문 →
   await expect(s1.getByText(/저장됨 \d\d:\d\d:\d\d/)).toBeVisible();
   await s1.reload();
   await expect(s1.getByRole('timer')).toBeVisible();
+  // 새로고침하면 전체화면이 풀려 문항이 가려진다(계획 2 Task 7). 전체화면으로 돌아와야 문항이 보인다.
+  await s1.getByRole('button', { name: '전체화면으로 돌아가기' }).click();
+  await expect(s1.getByRole('navigation', { name: '문항 목록' })).toBeVisible();
   await openQuestion(s1, '쿠키와 로컬 스토리지');
   await expect(s1.getByLabel('답안 입력')).toHaveValue('쿠키는 요청마다 서버로 전송되지만 로컬 스토리지는 브라우저에만 남는다.');
   await openQuestion(s1, 'HTTP 상태 코드 404');
