@@ -116,4 +116,19 @@ describe('detectNetworkIncident', () => {
   it('10초보다 오래된 이벤트는 제외', () => {
     expect(detectNetworkIncident([ev('a', 1000), ev('b', 2000), ev('c', 20000)], 100, now)).toBeNull();
   });
+  it('최소 2명 규칙: 응시 1명만 끊겨도 응시 인원 1~3명이면 null', () => {
+    for (const total of [1, 2, 3]) {
+      expect(detectNetworkIncident([ev('a', 1)], total, now)).toBeNull();
+    }
+  });
+  it('최소 2명 규칙: 2명이 응시 3명 중(67%)이면 객체', () => {
+    const r = detectNetworkIncident([ev('a', 1), ev('b', 2)], 3, now);
+    expect(r?.count).toBe(2);
+  });
+  it('최소 2명 규칙: 2명이 응시 10명 중(20%)이면 null', () => {
+    expect(detectNetworkIncident([ev('a', 1), ev('b', 2)], 10, now)).toBeNull();
+  });
+  it('3명 이상이면 응시 100명이어도 객체', () => {
+    expect(detectNetworkIncident([ev('a', 1), ev('b', 2), ev('c', 3)], 100, now)?.count).toBe(3);
+  });
 });
