@@ -10,12 +10,11 @@ import { connectStudentSocket } from '../../socket';
 import { createServerClock } from '../../student/serverClock';
 import { drafts, session } from '../../student/session';
 import { getAttempt, getPublicExam, postConfirm, postEntry, type AttemptView, type EntryInput } from '../../student/studentApi';
-import type { AutosaveSocket } from '../../student/useAutosave';
 import { ConfirmStep } from './ConfirmStep';
 import { ConsentStep } from './ConsentStep';
 import { EnvCheckStep } from './EnvCheckStep';
 import { EntryStep } from './EntryStep';
-import { ExamTaking } from './ExamTaking';
+import { ExamTaking, type ExamSocket } from './ExamTaking';
 import { Notice, type NoticeKind } from './Notice';
 import { PendingApproval } from './PendingApproval';
 import styles from './student.module.css';
@@ -67,6 +66,8 @@ export function StudentFlow() {
   };
   const toSession = (token: string) => {
     forget();
+    // 이 브라우저에 세션이 없던 새 응시 시작이면 이전 응시자가 남긴 신호 큐·seq를 비운다. 같은 기기의 재입장(토큰 있음)은 seq를 이어간다.
+    if (!session.get(examCode)) session.clearSignals(examCode);
     session.set(examCode, token);
     setPhase({ kind: 'session', token });
   };
@@ -238,14 +239,48 @@ function StudentSession({ examCode, token, onLeave }: { examCode: string; token:
     alive.current = true;
     const sock = connectStudentSocket(token);
     setSocket(sock);
+    // connect_error: 서버가 handshake를 거절하면 socket.io는 스스로 재연결하지 않는다. 그래서
+    // ① HTTP로 세션이 아직 유효한지 확인하고(401이면 입장 화면으로) ② 유효하면 지수 백오프(1s→30s)로 직접 다시 연결한다.
+    let reconnectN = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let checking = false;
+    const scheduleReconnect = () => {
+      if (!alive.current || reconnectTimer !== undefined || sock.active === true) return; // 이미 socket.io가 재시도 중이면 맡긴다
+      const delay = Math.min(1000 * 2 ** reconnectN, 30_000);
+      reconnectN += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = undefined;
+        if (alive.current && !sock.connected) sock.connect();
+      }, delay);
+    };
+    const recover = async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        applyView(await getAttempt(token));
+        scheduleReconnect();
+      } catch (err) {
+        if (!alive.current) return;
+        if (err instanceof ApiError && err.status === 401) {
+          sock.disconnect();
+          session.clearAll(examCode);
+          leave.current(null);
+        } else scheduleReconnect(); // 서버·네트워크 문제: 계속 시도
+      } finally {
+        checking = false;
+      }
+    };
     sock.on('connect', () => {
+      reconnectN = 0;
+      clearTimeout(reconnectTimer);
+      reconnectTimer = undefined;
       setConnected(true);
       void refresh(); // 연결·재연결 뒤 DB 최신 상태로 한 번 맞춘다
     });
     sock.on('disconnect', () => setConnected(false));
     sock.on('connect_error', () => {
       setConnected(false);
-      void refresh(); // 토큰이 무효면 401로 입장 화면에 돌아간다
+      void recover();
     });
     sock.on(EV.ATTEMPT_STATE, (p: AttemptView) => applyView(p));
     sock.on(EV.WAITING_COUNT, (p: { ready: number; total: number }) => setWaiting({ ready: p.ready, total: p.total }));
@@ -268,6 +303,7 @@ function StudentSession({ examCode, token, onLeave }: { examCode: string; token:
     void refresh();
     return () => {
       alive.current = false;
+      clearTimeout(reconnectTimer);
       sock.off('connect');
       sock.off('disconnect');
       sock.off('connect_error');
@@ -282,14 +318,17 @@ function StudentSession({ examCode, token, onLeave }: { examCode: string; token:
   const state = snap?.state;
   // 제출·종료·거절되면 이 기기의 미저장 초안을 지운다(토큰은 설문을 마칠 때까지 둔다).
   useEffect(() => {
-    if (state === 'SUBMITTED' || state === 'TERMINATED' || state === 'REJECTED') drafts.clearAll(examCode);
+    if (state === 'SUBMITTED' || state === 'TERMINATED' || state === 'REJECTED') {
+      drafts.clearAll(examCode);
+      session.clearSignals(examCode);
+    }
     if (state === 'REJECTED') session.clearAll(examCode);
   }, [state, examCode]);
 
   const clock = useMemo(() => createServerClock(snap?.serverNow ?? Date.now(), snap?.receivedAt ?? Date.now()), [snap?.serverNow, snap?.receivedAt]);
   const onUpdate = useCallback((v: AttemptView) => applyView(v), [applyView]);
   const refreshVoid = useCallback(() => void refresh(), [refresh]);
-  const autosaveSocket = socket as unknown as AutosaveSocket | null;
+  const examSocket = socket as unknown as ExamSocket | null;
 
   if (!snap) {
     return (
@@ -328,7 +367,7 @@ function StudentSession({ examCode, token, onLeave }: { examCode: string; token:
         <ExamTaking
           examCode={examCode}
           token={token}
-          socket={autosaveSocket}
+          socket={examSocket}
           state={snap.state}
           deadline={snap.deadline}
           clock={clock}

@@ -1,10 +1,9 @@
-// 학생 행동 신호 수집(SPEC 5.1~5.3). 통합(ExamTaking·StudentFlow에 붙이기)은 Task 7.
+// 학생 행동 신호 수집(SPEC 5.1~5.3). ExamTaking이 연결한다.
 // 신호에는 학생이 쓴 내용·토큰을 넣지 않는다. meta에는 길이·원인 같은 사실만 담는다.
+import { HEARTBEAT_MS, type ClientSignalType } from '@exam/shared';
 import { useEffect, useRef, useState } from 'react';
-import { createSignalQueue, type ClientSignalType, type QueueMsg, type SendResult, type SignalQueue } from './signalQueue';
+import { createSignalQueue, type QueueMsg, type SendResult, type SignalQueue } from './signalQueue';
 
-// Task 1 병합 후 shared의 HEARTBEAT_MS로 교체 가능.
-export const HEARTBEAT_MS = 5000;
 const FOCUS_POLL_MS = 1000;
 /** 서버는 이 값을 넘는 durationMs를 INVALID로 거부한다. 절전 복귀 등에서 신호가 사라지지 않도록 자른다. */
 const MAX_DURATION_MS = 3_600_000;

@@ -102,6 +102,19 @@
   font-variant-numeric: tabular-nums;
   font-weight: 700;
 }
+.notice {
+  border: 1px solid #b26a00;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+}
+.gate {
+  border: 2px solid #b26a00;
+  border-radius: 6px;
+  padding: 1.5rem;
+  margin-top: 1rem;
+  text-align: center;
+}
 .lock {
   border: 2px solid #b00020;
   border-radius: 6px;
