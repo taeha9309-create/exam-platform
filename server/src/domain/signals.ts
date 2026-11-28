@@ -1,6 +1,7 @@
 import {
   LEAVE_VIOLATION_MS,
   NETWORK_INCIDENT_MIN_COUNT,
+  NETWORK_INCIDENT_MIN_RATIO_COUNT,
   NETWORK_INCIDENT_RATIO,
   NETWORK_INCIDENT_WINDOW_MS,
   VIOLATION_LIMIT,
@@ -67,7 +68,8 @@ export function shouldAutoPause(newViolationCount: number): boolean {
 
 /**
  * 네트워크 장애 의심 판정 (SPEC 5.5). now 기준 최근 10초(경계 포함) 이벤트에서
- * 서로 다른 응시 수가 3명 이상이거나 전체 응시의 30% 이상이면 결과를 돌려준다.
+ * 서로 다른 응시 수가 3명 이상이거나, 2명 이상이면서 전체 응시의 30% 이상이면 결과를 돌려준다.
+ * 1명만으로는 장애가 아니다 (D-030).
  * 같은 응시의 반복 이벤트는 1명으로 센다.
  */
 export function detectNetworkIncident(
@@ -86,7 +88,10 @@ export function detectNetworkIncident(
   const count = ids.size;
   if (count === 0) return null;
   const byCount = count >= NETWORK_INCIDENT_MIN_COUNT;
-  const byRatio = totalAttempts > 0 && count / totalAttempts >= NETWORK_INCIDENT_RATIO;
+  const byRatio =
+    count >= NETWORK_INCIDENT_MIN_RATIO_COUNT &&
+    totalAttempts > 0 &&
+    count / totalAttempts >= NETWORK_INCIDENT_RATIO;
   if (!byCount && !byRatio) return null;
   return { count, attemptIds: [...ids], since };
 }

@@ -143,6 +143,8 @@ export const NETWORK_INCIDENT_WINDOW_MS = 10000;
 export const NETWORK_INCIDENT_MIN_COUNT = 3;
 /** 네트워크 장애 의심 응시 인원 비율 (SPEC 5.5) */
 export const NETWORK_INCIDENT_RATIO = 0.3;
+/** 비율 조건이 성립하려면 필요한 최소 인원 (SPEC 5.5, D-030). 1명만으로는 장애가 아니다 */
+export const NETWORK_INCIDENT_MIN_RATIO_COUNT = 2;
 
 /** 신호 DTO (SPEC 7.2). 시각은 epoch ms */
 export type SignalDto = {
