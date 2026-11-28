@@ -36,7 +36,8 @@ try {
 }
 // Socket.IO는 같은 http 서버에 붙이므로 여기서 http.Server를 직접 만든다.
 const httpServer = createServer(app);
-const io = attachSocket(httpServer);
+// 앱과 같은 trustProxy 변수를 넘긴다(소켓 인증 실패 한도가 프록시 주소 하나로 뭉치지 않도록 실제 클라이언트 IP를 쓴다).
+const io = attachSocket(httpServer, { trustProxy });
 
 // 마감 티커: 1초마다 마감이 지난 응시를 제출하고 끝난 시험을 종료한다(겹침 방지·예외 격리는 startDeadlineTicker).
 const ticker = startDeadlineTicker();

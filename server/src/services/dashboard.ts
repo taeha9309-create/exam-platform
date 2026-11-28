@@ -119,7 +119,7 @@ const ATTEMPT_SELECT = {
   pendingTokenHash: true, // 대기 요청 여부 판단에만 쓴다. 응답에는 복사하지 않는다.
 } as const;
 
-type Db = PrismaClient;
+type Db = PrismaClient | Prisma.TransactionClient;
 
 /** 응시별 마지막 신호·마지막 이탈 신호·마지막 중지 조치. 응시 수와 무관하게 쿼리 3개(DISTINCT ON). ids가 있으면 그 응시만. */
 async function loadLatest(db: Db, examId: string, ids: string[] | null) {
