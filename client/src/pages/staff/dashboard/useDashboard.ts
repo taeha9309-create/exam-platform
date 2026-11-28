@@ -1,7 +1,7 @@
 // 감독 대시보드 상태 훅. 스냅샷(서버 DB가 원본)으로 시작해 변경분 이벤트만 적용한다(SPEC 7.2).
 // 같은 이벤트가 두 번 와도 결과가 같도록 학번(studentNo) 기준으로 덮어쓰기만 한다.
 import { EV, type AttemptSummary, type Severity, type SignalDto } from '@exam/shared';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { connectStaffSocket } from '../../../socket';
 
 export type ApprovalKind = 'LATE' | 'DUPLICATE';
@@ -82,6 +82,12 @@ export function useDashboard(examId: string) {
   const [joinFailed, setJoinFailed] = useState(false);
   const [sortBy, setSortBy] = useState<SortBy>('STUDENT_NO');
   const [query, setQuery] = useState('');
+  // 열린 상세 패널이 `signal:new`를 받기 위한 구독 목록(소켓 핸들러는 이 훅이 하나만 건다)
+  const signalListeners = useRef(new Set<(attemptId: string, signal: SignalDto) => void>());
+  const subscribeSignals = useCallback((fn: (attemptId: string, signal: SignalDto) => void) => {
+    signalListeners.current.add(fn);
+    return () => void signalListeners.current.delete(fn);
+  }, []);
 
   useEffect(() => {
     const socket = connectStaffSocket();
@@ -115,6 +121,7 @@ export function useDashboard(examId: string) {
       if (!isRecord(p) || typeof p.attemptId !== 'string' || !isRecord(p.signal)) return;
       const sig = p.signal as unknown as SignalDto;
       const attemptId = p.attemptId;
+      for (const fn of signalListeners.current) fn(attemptId, sig);
       setSignals((cur) => {
         const prev = cur.get(attemptId);
         if (prev && prev.receivedAt > sig.receivedAt) return cur;
@@ -169,7 +176,7 @@ export function useDashboard(examId: string) {
     [approvals, all],
   );
 
-  return { exam, cards, allCards: all, total: total ?? exam?.total ?? null, ready, signals, pendingApprovals, networkIncident, sortBy, setSortBy, query, setQuery, socketDown, joinFailed, removeApproval, hasSnapshot: exam !== null };
+  return { exam, cards, allCards: all, total: total ?? exam?.total ?? null, ready, signals, subscribeSignals, pendingApprovals, networkIncident, sortBy, setSortBy, query, setQuery, socketDown, joinFailed, removeApproval, hasSnapshot: exam !== null };
 }
 
 export type Dashboard = ReturnType<typeof useDashboard>;
