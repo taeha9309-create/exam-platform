@@ -21,7 +21,8 @@
     "e2e": "playwright test -c e2e/playwright.config.ts",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "start": "node server/dist/index.js"
+    "start": "node server/dist/index.js",
+    "load-test": "tsx --env-file-if-exists=.env scripts/load-test.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",
