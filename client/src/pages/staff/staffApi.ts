@@ -1,5 +1,5 @@
 // 교수자 화면이 쓰는 API 함수 모음(SPEC 7.1). 화면은 fetch를 직접 부르지 않고 여기 함수만 쓴다(테스트에서 이 모듈을 모킹한다).
-import type { ExamStatus, PasteMode, QuestionType } from '@exam/shared';
+import type { AttemptSummary, ExamStatus, PasteMode, ProctorActionType, QuestionType, SignalDto } from '@exam/shared';
 import { api, ApiError } from '../../api';
 
 export interface StaffInfo {
@@ -142,6 +142,23 @@ export type ProctorActionBody = {
   payload?: { minutes?: number; addPausedTime?: boolean };
 };
 export const postAction = (attemptId: string, body: ProctorActionBody) => api<{ attempt: { id: string; state: string } }>('POST', `/api/attempts/${attemptId}/actions`, body);
+
+// --- 학생 상세 타임라인 (F-15, 서버 Task 3 계약)
+export interface TimelineAction {
+  id: string;
+  type: ProctorActionType;
+  reason: string;
+  staffName: string | null;
+  payload: object;
+  createdAt: number;
+}
+export interface TimelineResponse {
+  attempt: AttemptSummary;
+  signals: SignalDto[];
+  truncated: boolean;
+  actions: TimelineAction[];
+}
+export const getTimeline = (attemptId: string) => api<TimelineResponse>('GET', `/api/attempts/${attemptId}/timeline`);
 
 // --- 결과·설문 (F-17, F-18): 서버 Task 12 계약. 서버 구현 전에는 404가 돌아올 수 있다.
 export interface ResultsResponse {

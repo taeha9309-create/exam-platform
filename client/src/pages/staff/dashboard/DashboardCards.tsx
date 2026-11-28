@@ -3,6 +3,7 @@ import { t } from '../../../copy/ko';
 import { postAction, type ProctorActionBody } from '../staffApi';
 import { ErrorAlert, useBusy, useStaffError } from '../staffUi';
 import { ActionBar } from './ActionBar';
+import { StudentPanel } from './StudentPanel';
 import { StudentCard } from './StudentCard';
 import type { Dashboard, NetworkIncident, SortBy } from './useDashboard';
 
@@ -23,11 +24,13 @@ export function DashboardCards({ dash }: { dash: Dashboard }) {
   const { busy, run } = useBusy();
   const [error, setError] = useState<string | null>(null);
   const [selectedNo, setSelectedNo] = useState<string | null>(null);
+  const [openNo, setOpenNo] = useState<string | null>(null);
   const { cards, allCards, signals } = dash;
   const found = selectedNo === null ? null : (allCards.find((c) => c.studentNo === selectedNo) ?? null);
   // 제출·종료 등으로 조치할 수 없는 상태가 되면 조치 막대를 닫는다
   const selected = found && (found.state === 'ACTIVE' || found.state === 'PAUSED') ? found : null;
   const disabled = busy !== null;
+  const opened = openNo === null ? null : (allCards.find((c) => c.studentNo === openNo) ?? null);
 
   /** 성공하면 true. 실패는 오류 문구로 보이고 false(입력 유지용). */
   const act = async (attemptId: string, key: string, body: ProctorActionBody): Promise<boolean> => {
@@ -78,11 +81,15 @@ export function DashboardCards({ dash }: { dash: Dashboard }) {
               selected={selectedNo === c.studentNo}
               busy={disabled}
               onSelect={() => setSelectedNo((cur) => (cur === c.studentNo ? null : c.studentNo))}
+              onOpen={() => c.attemptId && setOpenNo(c.studentNo)}
               onAck={() => c.attemptId && void act(c.attemptId, `ack-${c.studentNo}`, { type: 'ACK' })}
             />
           ))}
         </ul>
       )}
+      {opened && opened.attemptId !== null ? (
+        <StudentPanel key={opened.attemptId} card={opened} subscribeSignals={dash.subscribeSignals} clock={dash.clock}onClose={() => setOpenNo(null)} />
+      ) : null}
     </section>
   );
 }

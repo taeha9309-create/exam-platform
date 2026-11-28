@@ -39,6 +39,7 @@ export function StudentCard({
   busy,
   onSelect,
   onAck,
+  onOpen,
 }: {
   card: AttemptSummary;
   /** `signal:new`로 받은 최근 신호 상세(없으면 요약의 종류만 표시) */
@@ -47,6 +48,8 @@ export function StudentCard({
   busy: boolean;
   onSelect: () => void;
   onAck: () => void;
+  /** 상세 패널 열기(카드 클릭 또는 [상세] 버튼) */
+  onOpen: () => void;
 }) {
   const tone = cardTone(card);
   const paused = card.state === 'PAUSED';
@@ -74,7 +77,16 @@ export function StudentCard({
       data-locked={String(card.locked)}
       data-dim={String(dim)}
       data-severity={card.unackedSeverity}
-      style={style}
+      style={{ ...style, cursor: card.attemptId !== null ? 'pointer' : undefined }}
+      onClick={
+        card.attemptId !== null
+          ? (e) => {
+              // 버튼(비활성 버튼 포함)을 누른 클릭은 패널을 열지 않는다
+              if ((e.target as Element).closest('button')) return;
+              onOpen();
+            }
+          : undefined
+      }
     >
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
         <strong>{card.name}</strong>
@@ -101,11 +113,35 @@ export function StudentCard({
       </div>
       {card.attemptId !== null ? (
         <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
-          <button type="button" disabled={busy || card.unackedSeverity === 'NONE'} onClick={onAck}>
+          <button
+            type="button"
+            aria-label={t.staff.panel.openLabel(card.name)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen();
+            }}
+          >
+            {t.staff.panel.open}
+          </button>
+          <button
+            type="button"
+            disabled={busy || card.unackedSeverity === 'NONE'}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAck();
+            }}
+          >
             {t.staff.dash.ack}
           </button>
           {canAct ? (
-            <button type="button" aria-pressed={selected} onClick={onSelect}>
+            <button
+              type="button"
+              aria-pressed={selected}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect();
+              }}
+            >
               {t.staff.dash.select}
             </button>
           ) : null}
