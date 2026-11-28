@@ -26,6 +26,7 @@ export function signalSeverity(type: SignalType, durationMs?: number | null): Si
       return 'INFO';
     }
     case 'RECONNECT':
+    case 'SIDEBAR_SUSPECT':
       return 'INFO';
     default:
       return 'WARN';

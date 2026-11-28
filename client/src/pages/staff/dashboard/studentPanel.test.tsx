@@ -124,6 +124,7 @@ describe('describeSignal', () => {
     expect(describeSignal(sig('a', 'FULLSCREEN_EXIT', 1))).toBe('전체화면 해제');
     expect(describeSignal(sig('a', 'PASTE', 1, { meta: { length: 340, blocked: true } }))).toBe('붙여넣기 340자 (차단됨)');
     expect(describeSignal(sig('a', 'DISCONNECT', 1))).toBe('연결 끊김');
+    expect(describeSignal(sig('a', 'SIDEBAR_SUSPECT', 1, { severity: 'INFO', meta: { deltaInner: 300 } }))).toBe('화면 폭 변화 (사이드바 열림 의심)');
   });
 
   it('모르는 타입은 일반 문구', () => {

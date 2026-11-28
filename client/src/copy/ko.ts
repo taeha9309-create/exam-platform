@@ -217,6 +217,8 @@ export const t = {
             return `붙여넣기${typeof meta?.length === 'number' ? ` ${meta.length}자` : ''}${blocked}`;
           case 'DROP':
             return `끌어놓기${blocked}`;
+          case 'SIDEBAR_SUSPECT':
+            return '화면 폭 변화 (사이드바 열림 의심)';
           case 'MULTI_MONITOR':
             return '모니터 여러 대 감지';
           case 'DISCONNECT':
@@ -262,6 +264,7 @@ export const t = {
         FULLSCREEN_EXIT: () => '전체화면 해제',
         PASTE: (len: number | null, blocked: boolean | null) => `붙여넣기${len === null ? '' : ` ${len}자`}${blocked === null ? '' : blocked ? ' (차단됨)' : ' (기록됨)'}`,
         DROP: (blocked: boolean | null) => `끌어놓기${blocked === null ? '' : blocked ? ' (차단됨)' : ' (기록됨)'}`,
+        SIDEBAR_SUSPECT: () => '화면 폭 변화 (사이드바 열림 의심)',
         MULTI_MONITOR: () => '모니터 여러 대 감지',
         DISCONNECT: () => '연결 끊김',
         RECONNECT: () => '다시 연결됨',

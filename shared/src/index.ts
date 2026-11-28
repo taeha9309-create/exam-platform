@@ -47,6 +47,7 @@ export type SignalType =
   | 'FULLSCREEN_EXIT'
   | 'PASTE'
   | 'DROP'
+  | 'SIDEBAR_SUSPECT'
   | 'MULTI_MONITOR'
   | 'DISCONNECT'
   | 'RECONNECT'
@@ -129,7 +130,12 @@ export type ErrorCode = (typeof ERROR_CODES)[number];
 export type SignalSeverity = 'INFO' | 'WARN' | 'ALERT';
 
 /** 학생 클라이언트가 보내는 신호 종류 (SPEC 5.1) */
-export type ClientSignalType = 'LEAVE' | 'LEAVE_START' | 'FULLSCREEN_EXIT' | 'PASTE' | 'DROP';
+export type ClientSignalType = 'LEAVE' | 'LEAVE_START' | 'FULLSCREEN_EXIT' | 'PASTE' | 'DROP' | 'SIDEBAR_SUSPECT';
+
+/** 사이드바 열림 의심: 바깥 너비는 그대로, 안쪽 너비가 이 값(px) 이상 줄어듦 (SPEC 5.1) */
+export const SIDEBAR_MIN_SHRINK_PX = 80;
+/** SIDEBAR_SUSPECT meta.deltaInner 서버 검증 상한(px) */
+export const SIDEBAR_MAX_DELTA_PX = 100000;
 
 /** 이탈 3초 이상이면 위반 (SPEC 5.4) */
 export const LEAVE_VIOLATION_MS = 3000;

@@ -439,6 +439,68 @@ describe('오프라인 큐', () => {
   });
 });
 
+describe('사이드바 열림 의심(SIDEBAR_SUSPECT)', () => {
+  const setSize = (outer: number, inner: number) => {
+    Object.defineProperty(window, 'outerWidth', { configurable: true, writable: true, value: outer });
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: inner });
+  };
+  const resize = (outer: number, inner: number) => {
+    setSize(outer, inner);
+    act(() => void window.dispatchEvent(new Event('resize')));
+  };
+
+  it('outer는 그대로, inner가 80px 이상 줄면 meta.deltaInner와 함께 1건', async () => {
+    setSize(1200, 1180);
+    const { sent } = setup({ heartbeatEnabled: false });
+    resize(1200, 1100);
+    await tick(0);
+    const s = signals(sent, 'SIDEBAR_SUSPECT');
+    expect(s).toHaveLength(1);
+    expect(s[0]!.payload.meta).toEqual({ deltaInner: 80 });
+  });
+
+  it('outer도 변하면(창을 직접 줄임) 신호 없음', async () => {
+    setSize(1200, 1180);
+    const { sent } = setup({ heartbeatEnabled: false });
+    resize(1000, 900);
+    await tick(0);
+    expect(signals(sent)).toHaveLength(0);
+  });
+
+  it('80px 미만 축소는 신호 없음', async () => {
+    setSize(1200, 1180);
+    const { sent } = setup({ heartbeatEnabled: false });
+    resize(1200, 1101);
+    await tick(0);
+    expect(signals(sent)).toHaveLength(0);
+  });
+
+  it('같은 너비로 resize가 반복돼도 중복 기록하지 않는다. 80px 이상 더 줄면 다시 기록', async () => {
+    setSize(1200, 1180);
+    const { sent } = setup({ heartbeatEnabled: false });
+    resize(1200, 1000);
+    resize(1200, 1000);
+    resize(1200, 1000);
+    await tick(0);
+    expect(signals(sent, 'SIDEBAR_SUSPECT')).toHaveLength(1);
+    resize(1200, 900);
+    await tick(1000);
+    expect(signals(sent, 'SIDEBAR_SUSPECT')).toHaveLength(2);
+  });
+
+  it('enabled=false에서는 수집하지 않고, 그동안의 변화는 기준값에 반영된다', async () => {
+    setSize(1200, 1180);
+    const { sent, hook, initial } = setup({ enabled: false, heartbeatEnabled: false });
+    resize(1200, 1000);
+    await tick(0);
+    expect(signals(sent)).toHaveLength(0);
+    hook.rerender({ ...initial, enabled: true, heartbeatEnabled: false });
+    resize(1200, 1000); // 이미 줄어든 상태 유지: 신호 없음
+    await tick(0);
+    expect(signals(sent)).toHaveLength(0);
+  });
+});
+
 describe('enabled', () => {
   it('(g) enabled=false에서는 위반 신호를 만들지 않고 하트비트는 계속 보낸다', async () => {
     const { sent } = setup({ enabled: false, pasteMode: 'RECORD' });
