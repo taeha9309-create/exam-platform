@@ -1,4 +1,4 @@
-import { EV, VIOLATION_LIMIT, type ClientSignalType, type Severity, type SignalDto, type SignalType } from '@exam/shared';
+import { EV, SIDEBAR_MAX_DELTA_PX, SIDEBAR_MIN_SHRINK_PX, VIOLATION_LIMIT, type ClientSignalType, type Severity, type SignalDto, type SignalType } from '@exam/shared';
 import { Prisma, type Signal } from '@prisma/client';
 import { prisma } from '../db';
 import { nextState } from '../domain/attemptMachine';
@@ -41,7 +41,7 @@ const MAX_SEQ = 2_147_483_647;
 /** clientAt 상한(2100-01-01). Date·PostgreSQL이 다룰 수 있는 범위 안으로 제한한다. */
 const MAX_CLIENT_AT = 4_102_444_800_000;
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-const CLIENT_TYPES: ReadonlySet<string> = new Set<ClientSignalType>(['LEAVE', 'LEAVE_START', 'FULLSCREEN_EXIT', 'PASTE', 'DROP']);
+const CLIENT_TYPES: ReadonlySet<string> = new Set<ClientSignalType>(['LEAVE', 'LEAVE_START', 'FULLSCREEN_EXIT', 'PASTE', 'DROP', 'SIDEBAR_SUSPECT']);
 const SIGNAL_KEYS = new Set(['seq', 'type', 'clientAt', 'durationMs', 'questionId', 'meta']);
 const HEARTBEAT_KEYS = new Set(['seq']);
 const TERMINAL = new Set(['SUBMITTED', 'TERMINATED', 'REJECTED']);
@@ -114,6 +114,12 @@ export function parseClientSignal(payload: unknown): ParsedSignal | null {
     if (!isPlainObject(meta) || !metaStorable(meta)) return null;
     if (Buffer.byteLength(JSON.stringify(meta), 'utf8') > SIGNAL_META_MAX_BYTES) return null;
     metaObj = meta;
+  }
+  if (type === 'SIDEBAR_SUSPECT') {
+    // 사실값 하나만 허용: deltaInner(정수, 최소 줄어듦 이상). 그 외 키·값은 위조로 본다.
+    const keys = Object.keys(metaObj);
+    const d = metaObj.deltaInner;
+    if (keys.length !== 1 || typeof d !== 'number' || !Number.isSafeInteger(d) || d < SIDEBAR_MIN_SHRINK_PX || d > SIDEBAR_MAX_DELTA_PX) return null;
   }
   return { seq, type: type as ClientSignalType, clientAt: clientAtDate, durationMs: duration, questionId: qid, meta: metaObj };
 }

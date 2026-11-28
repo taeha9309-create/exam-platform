@@ -13,6 +13,7 @@ const DESCRIBE: Record<SignalType, (s: SignalDto) => string> = {
   FULLSCREEN_EXIT: () => P.signalText.FULLSCREEN_EXIT(),
   PASTE: (s) => P.signalText.PASTE(asNum(s.meta?.length), asBool(s.meta?.blocked)),
   DROP: (s) => P.signalText.DROP(asBool(s.meta?.blocked)),
+  SIDEBAR_SUSPECT: () => P.signalText.SIDEBAR_SUSPECT(),
   MULTI_MONITOR: () => P.signalText.MULTI_MONITOR(),
   DISCONNECT: () => P.signalText.DISCONNECT(),
   RECONNECT: () => P.signalText.RECONNECT(),

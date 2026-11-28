@@ -24,7 +24,7 @@ export interface SendResult {
 /** 큐 크기 상한. 넘으면 가장 오래된 하트비트부터 버린다(신호는 버리지 않는다). */
 export const MAX_QUEUE = 200;
 
-const TYPES: readonly string[] = ['LEAVE', 'LEAVE_START', 'FULLSCREEN_EXIT', 'PASTE', 'DROP', 'HB'];
+const TYPES: readonly string[] = ['LEAVE', 'LEAVE_START', 'FULLSCREEN_EXIT', 'PASTE', 'DROP', 'SIDEBAR_SUSPECT', 'HB'];
 
 function isMsg(v: unknown): v is QueueMsg {
   if (typeof v !== 'object' || v === null) return false;

@@ -118,6 +118,29 @@ describe('위반 카운트와 알림', () => {
     expect(row).toMatchObject({ violationCount: 1, lastSeq: 1, unackedSeverity: 'WARN', state: 'ACTIVE' });
   });
 
+  it('SIDEBAR_SUSPECT: INFO로 저장, 위반 카운트·자동 잠금 없음(6건 보내도 ACTIVE), unackedSeverity는 INFO까지', async () => {
+    const fx = await fixture();
+    const { attempt, token } = await makeAttempt(fx);
+    const stu = await studentSocket(token);
+    for (let i = 0; i < 6; i++) expect(await send(stu, sig('SIDEBAR_SUSPECT', { meta: { deltaInner: 80 + i } }))).toEqual({ ok: true });
+    const rows = await signalsOf(attempt.id);
+    expect(rows).toHaveLength(6);
+    expect(rows.every((r) => r.type === 'SIDEBAR_SUSPECT' && r.severity === 'INFO')).toBe(true);
+    expect(rows[0]!.meta).toEqual({ deltaInner: 80 });
+    expect(await reload(attempt.id)).toMatchObject({ violationCount: 0, unackedSeverity: 'INFO', state: 'ACTIVE' });
+    expect(await actionsOf(attempt.id)).toHaveLength(0);
+  });
+
+  it('SIDEBAR_SUSPECT meta 위조 거부: 값 범위·타입·추가 키·누락', () => {
+    const ok = (meta: unknown) => parseClientSignal(sig('SIDEBAR_SUSPECT', { meta }));
+    expect(ok({ deltaInner: 80 })).not.toBeNull();
+    expect(ok({ deltaInner: 100000 })).not.toBeNull();
+    for (const bad of [{}, { deltaInner: 79 }, { deltaInner: 100001 }, { deltaInner: 80.5 }, { deltaInner: '90' }, { deltaInner: null }, { deltaInner: 90, extra: 1 }, { other: 90 }]) {
+      expect(ok(bad)).toBeNull();
+    }
+    expect(parseClientSignal({ seq: 1, type: 'SIDEBAR_SUSPECT', clientAt: 1 })).toBeNull(); // meta 생략
+  });
+
   it('(b) 위반 5건이면 PAUSED + AUTO_PAUSE 1건(staffId null) + attempt:state PAUSED(locked true)', async () => {
     const fx = await fixture();
     const { attempt, token } = await makeAttempt(fx);
