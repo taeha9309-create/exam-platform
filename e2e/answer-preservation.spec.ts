@@ -72,51 +72,71 @@ for (const run of [1, 2, 3]) {
     const opened = (await (await api.post(`/api/exams/${examId}/open`)).json()).exam as { examCode: string; passcode: string };
 
     const ctx = await newStudentContext(browser);
-    const s = await ctx.newPage();
-    await enterAndGetReady(s, opened.examCode, '20269001', '학생01', opened.passcode);
-    expect((await api.post(`/api/exams/${examId}/start`)).status()).toBe(200);
-    await expect(s.getByRole('timer')).toBeVisible({ timeout: 2000 });
-    const token = await s.evaluate((code) => localStorage.getItem(`exam:${code}:token`), opened.examCode);
-    expect(token).toBeTruthy();
+    try {
+      const s = await ctx.newPage();
+      // WebSocket 프레임을 관찰한다. 오프라인 에뮬레이션은 소켓을 닫지 않고(close 이벤트 없음) 전송만 막으므로,
+      // 클라이언트가 answer:save를 "보냈는지"(시도)와 서버 응답(ack)이 "왔는지"를 프레임 이벤트로 센다.
+      let sockets = 0;
+      let saveSent = 0;
+      let saveAcked = 0;
+      s.on('websocket', (ws) => {
+        sockets += 1;
+        ws.on('framesent', (f) => { if (String(f.payload).includes('answer:save')) saveSent += 1; });
+        ws.on('framereceived', (f) => { if (/^43\d*\[/.test(String(f.payload)) && String(f.payload).includes('savedAt')) saveAcked += 1; });
+      });
+      await enterAndGetReady(s, opened.examCode, '20269001', '학생01', opened.passcode);
+      expect((await api.post(`/api/exams/${examId}/start`)).status()).toBe(200);
+      await expect(s.getByRole('timer')).toBeVisible({ timeout: 10_000 });
+      const token = await s.evaluate((code) => localStorage.getItem(`exam:${code}:token`), opened.examCode);
+      expect(token).toBeTruthy();
 
-    /** 서버에 저장된 서술형 답안(학생 API 조회). 문항은 하나뿐이다. 조회는 교수자 컨텍스트의 요청으로 보내 학생 컨텍스트의 오프라인 설정과 무관하다. */
-    const serverText = async (): Promise<string | undefined> => {
-      const res = await api.get('/api/student/exam', { headers: { Authorization: `Bearer ${token}` } });
-      expect(res.status()).toBe(200);
-      const body = (await res.json()) as { answers: { text?: string }[] };
-      return body.answers[0]?.text;
-    };
+      /** 서버에 저장된 서술형 답안(학생 API 조회). 문항은 하나뿐이다. 조회는 교수자 컨텍스트의 요청으로 보내 학생 컨텍스트의 오프라인 설정과 무관하다. */
+      const serverText = async (): Promise<string | undefined> => {
+        const res = await api.get('/api/student/exam', { headers: { Authorization: `Bearer ${token}` } });
+        expect(res.status()).toBe(200);
+        const body = (await res.json()) as { answers: { text?: string }[] };
+        return body.answers[0]?.text;
+      };
 
-    // 1. 온라인 입력 → 저장됨 + 서버 반영 (문항 목록은 비동기로 받아 오므로 항목이 나타난 뒤 연다)
-    await expect(s.getByRole('navigation', { name: '문항 목록' }).getByRole('listitem').getByRole('button')).toHaveCount(1);
-    await openQuestion(s, ESSAY_PROMPT);
-    await s.getByLabel('답안 입력').fill(ONLINE_TEXT);
-    await expect(s.getByText(/저장됨 \d\d:\d\d:\d\d/)).toBeVisible();
-    await expect.poll(serverText).toBe(ONLINE_TEXT);
+      // 1. 온라인 입력 → 저장됨 + 서버 반영 (문항 목록은 비동기로 받아 오므로 항목이 나타난 뒤 연다)
+      await expect(s.getByRole('navigation', { name: '문항 목록' }).getByRole('listitem').getByRole('button')).toHaveCount(1);
+      await openQuestion(s, ESSAY_PROMPT);
+      await s.getByLabel('답안 입력').fill(ONLINE_TEXT);
+      await expect(s.getByText(/저장됨 \d\d:\d\d:\d\d/)).toBeVisible();
+      await expect.poll(serverText).toBe(ONLINE_TEXT);
 
-    // 2. 네트워크 차단 → 추가 입력. 서버에는 반영되지 않아야 한다(차단이 소켓에도 실제로 효과가 있다는 확인).
-    await ctx.setOffline(true);
-    await s.getByLabel('답안 입력').fill(OFFLINE_TEXT);
-    await s.waitForTimeout(8000); // 자동 저장 주기(디바운스 1초 + 5초)보다 길게 기다린다
-    expect(await serverText()).toBe(ONLINE_TEXT);
+      // 2. 네트워크 차단 → 추가 입력. 서버에는 반영되지 않아야 한다(차단이 소켓에도 실제로 효과가 있다는 확인).
+      expect(sockets).toBeGreaterThan(0);
+      expect(saveAcked).toBeGreaterThan(0); // 온라인에서는 저장 ack가 왔다
+      const sentBefore = saveSent;
+      const ackedBefore = saveAcked;
+      await ctx.setOffline(true);
+      expect(await s.evaluate(() => navigator.onLine)).toBe(false); // 차단이 브라우저에 적용됨
+      await s.getByLabel('답안 입력').fill(OFFLINE_TEXT);
+      // 이벤트 기반 대기(상한 15초): 오프라인 중에도 클라이언트가 저장을 "시도"했다(answer:save 프레임 전송). 시도가 없으면 아래 단정이 무의미하다.
+      await expect.poll(() => saveSent, { timeout: 15_000 }).toBeGreaterThan(sentBefore);
+      await expect(s.getByText('저장 중…')).toBeVisible(); // 화면은 미저장 상태
+      expect(saveAcked).toBe(ackedBefore); // 시도했지만 서버 응답은 오지 않았다
+      expect(await serverText()).toBe(ONLINE_TEXT);
 
-    // 3. 오프라인 새로고침: 페이지를 못 불러오는 것이 정상이다(예외는 무시). 초안은 localStorage에 남아 있다.
-    await s.reload().catch(() => undefined);
+      // 3. 오프라인 새로고침: 페이지를 못 불러오는 것이 정상이다(예외는 무시). 초안은 localStorage에 남아 있다.
+      await expect(s.reload()).rejects.toThrow(); // 오프라인이므로 새로고침은 실패해야 한다(오류 화면)
 
-    // 4. 복구 → 새로고침 → 화면 복구
-    await ctx.setOffline(false);
-    await s.reload();
-    await expect(s.getByRole('timer')).toBeVisible();
-    await s.getByRole('button', { name: '전체화면으로 돌아가기' }).click();
-    // 문항 목록은 새로고침 뒤 서버에서 다시 받아 오므로(비동기) 항목이 나타날 때까지 기다린 뒤 연다.
-    await expect(s.getByRole('navigation', { name: '문항 목록' }).getByRole('listitem').getByRole('button')).toHaveCount(1);
-    await openQuestion(s, ESSAY_PROMPT);
-    await expect(s.getByLabel('답안 입력')).toHaveValue(OFFLINE_TEXT);
+      // 4. 복구 → 새로고침 → 화면 복구
+      await ctx.setOffline(false);
+      await s.reload();
+      await expect(s.getByRole('timer')).toBeVisible({ timeout: 10_000 });
+      await s.getByRole('button', { name: '전체화면으로 돌아가기' }).click();
+      // 문항 목록은 새로고침 뒤 서버에서 다시 받아 오므로(비동기) 항목이 나타날 때까지 기다린 뒤 연다.
+      await expect(s.getByRole('navigation', { name: '문항 목록' }).getByRole('listitem').getByRole('button')).toHaveCount(1);
+      await openQuestion(s, ESSAY_PROMPT);
+      await expect(s.getByLabel('답안 입력')).toHaveValue(OFFLINE_TEXT);
 
-    // 5. 서버에도 저장됨(복구 후 재전송)
-    await expect.poll(serverText, { timeout: 15_000 }).toBe(OFFLINE_TEXT);
-
-    await api.post(`/api/exams/${examId}/end`).catch(() => undefined);
-    await ctx.close();
+      // 5. 서버에도 저장됨(복구 후 재전송)
+      await expect.poll(serverText, { timeout: 15_000 }).toBe(OFFLINE_TEXT);
+    } finally {
+      await api.post(`/api/exams/${examId}/end`).catch(() => undefined);
+      await ctx.close();
+    }
   });
 }
