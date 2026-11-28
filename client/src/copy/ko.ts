@@ -427,6 +427,7 @@ export const t = {
       warningTitle: '감독관 안내',
       warningConfirm: '확인',
       socketDown: '실시간 연결이 끊겼습니다. 입력한 답안은 이 기기에 보관되며 연결되면 저장됩니다.',
+      otherTab: '이 시험은 다른 탭에서 열려 있습니다. 그 탭을 사용하거나 닫은 뒤 새로고침하세요.',
     },
     submitted: {
       title: '제출이 완료되었습니다',
