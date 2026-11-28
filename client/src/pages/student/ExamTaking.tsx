@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api';
 import { t } from '../../copy/ko';
 import { drafts } from '../../student/session';
+import { type LockManagerLike, useSingleTabGuard } from '../../student/useSingleTabGuard';
 import { useSignalCollector } from '../../student/useSignalCollector';
 import { type AnswerValue, codePointLength, MAX_TEXT_LENGTH, useAutosave } from '../../student/useAutosave';
 import { getStudentExam, postSubmit, type StudentExam } from '../../student/studentApi';
@@ -51,7 +52,24 @@ export interface ExamTakingProps {
 }
 
 /** P-06 응시(F-11): 문항 목록·자유 이동·남은 시간(서버 시계)·자동 저장·제출. 감지·위반 처리는 계획 2. */
-export function ExamTaking({ examCode, token, socket, state, deadline, clock, violationCount, locked, connected, onRefresh }: ExamTakingProps) {
+export function ExamTaking(props: ExamTakingProps & { locks?: LockManagerLike | null }) {
+  const { locks, ...rest } = props;
+  // 같은 응시를 탭 두 개로 열면 탭별 seq가 충돌해 신호가 버려진다(#95). 한 탭만 수집·저장을 시작한다.
+  const guard = useSingleTabGuard(`exam-attempt:${props.examCode}`, locks === undefined ? {} : { locks });
+  if (guard === 'checking') return <p>{t.student.loading}</p>;
+  if (guard === 'blocked') {
+    return (
+      <main className={styles.page}>
+        <p role="alert" className={styles.warn}>
+          {t.student.taking.otherTab}
+        </p>
+      </main>
+    );
+  }
+  return <ExamTakingActive {...rest} />;
+}
+
+function ExamTakingActive({ examCode, token, socket, state, deadline, clock, violationCount, locked, connected, onRefresh }: ExamTakingProps) {
   const [exam, setExam] = useState<StudentExam | null>(null);
   const [values, setValues] = useState<Record<string, AnswerValue>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
