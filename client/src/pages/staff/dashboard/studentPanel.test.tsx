@@ -249,3 +249,74 @@ describe('학생 상세 패널', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
+
+describe('패널 남은 시간·구독 해제', () => {
+  const emitSnapshot = (attempts: AttemptSummary[], serverNow: number) =>
+    emitServer('dashboard:snapshot', {
+      exam: { id: EXAM_ID, title: '시험', status: 'RUNNING', endsAt: serverNow + 600_000, lockNewEntry: false, serverNow, ready: 1, total: attempts.length },
+      attempts,
+      pendingApprovals: [],
+      networkIncident: null,
+    });
+  const renderHarness = () =>
+    render(
+      <MemoryRouter>
+        <Harness />
+      </MemoryRouter>,
+    );
+
+  it('교수자 PC 시계가 서버보다 5분 어긋나도 남은 시간은 서버 기준이다', async () => {
+    const serverNow = Date.now() + 5 * 60_000; // 서버가 5분 앞섬(= 교수자 시계가 5분 느림)
+    const a = summary(1, { deadline: serverNow + 600_000 });
+    getTimeline.mockResolvedValue(timeline(a, []));
+    renderHarness();
+    emitSnapshot([a], serverNow);
+    const dlg = await openPanel(a.name);
+    // 보정하지 않으면 15분 안팎으로 표시된다
+    expect(within(dlg).getByText(/(10분 00초|9분 59초)/)).toBeTruthy();
+  });
+
+  it('PAUSED 카드는 pausedAt 기준 남은 시간을 고정해서 보인다', async () => {
+    const now = Date.now();
+    const a = summary(1, { state: 'PAUSED', pausedAt: now - 100_000, deadline: now - 100_000 + 125_000 });
+    getTimeline.mockResolvedValue(timeline(a, []));
+    renderHarness();
+    emitSnapshot([a], now);
+    const dlg = await openPanel(a.name);
+    expect(within(dlg).getByText(/2분 05초/)).toBeTruthy();
+  });
+
+  it('패널을 닫으면 signal:new 구독이 해제되고 이후 신호는 반영되지 않는다', async () => {
+    const { StudentPanel } = await import('./StudentPanel');
+    const a = summary(1);
+    getTimeline.mockResolvedValue(timeline(a, []));
+    const listeners = new Set<(id: string, s: SignalDto) => void>();
+    const subscribe = (fn: (id: string, s: SignalDto) => void) => {
+      listeners.add(fn);
+      return () => void listeners.delete(fn);
+    };
+    const { unmount } = render(
+      <MemoryRouter>
+        <StudentPanel card={a} subscribeSignals={subscribe} clock={{ now: () => Date.now() }} onClose={() => {}} />
+      </MemoryRouter>,
+    );
+    await screen.findByText(t.staff.panel.noSignals);
+    expect(listeners.size).toBe(1);
+    unmount();
+    expect(listeners.size).toBe(0);
+  });
+
+  it('언마운트 후 signal:new를 보내도 오류 없이 무시된다(훅 구독 해제)', async () => {
+    const a = summary(1);
+    getTimeline.mockResolvedValue(timeline(a, []));
+    const { unmount } = renderHarness();
+    emitSnapshot([a], Date.now());
+    await openPanel(a.name);
+    fireEvent.click(screen.getByRole('button', { name: t.staff.panel.close }));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    emitServer('signal:new', { attemptId: 'att-1', signal: sig('s1', 'LEAVE', 1) });
+    unmount();
+    expect(err).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+});

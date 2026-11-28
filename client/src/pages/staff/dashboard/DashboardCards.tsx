@@ -88,7 +88,7 @@ export function DashboardCards({ dash }: { dash: Dashboard }) {
         </ul>
       )}
       {opened && opened.attemptId !== null ? (
-        <StudentPanel key={opened.attemptId} card={opened} subscribeSignals={dash.subscribeSignals} onClose={() => setOpenNo(null)} />
+        <StudentPanel key={opened.attemptId} card={opened} subscribeSignals={dash.subscribeSignals} clock={dash.clock}onClose={() => setOpenNo(null)} />
       ) : null}
     </section>
   );

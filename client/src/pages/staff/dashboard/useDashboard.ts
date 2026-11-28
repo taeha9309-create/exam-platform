@@ -3,6 +3,7 @@
 import { EV, type AttemptSummary, type Severity, type SignalDto } from '@exam/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { connectStaffSocket } from '../../../socket';
+import { createServerClock } from '../../../student/serverClock';
 
 export type ApprovalKind = 'LATE' | 'DUPLICATE';
 export interface PendingApproval {
@@ -82,6 +83,7 @@ export function useDashboard(examId: string) {
   const [joinFailed, setJoinFailed] = useState(false);
   const [sortBy, setSortBy] = useState<SortBy>('STUDENT_NO');
   const [query, setQuery] = useState('');
+  const [clock, setClock] = useState<{ now(): number }>(() => ({ now: () => Date.now() }));
   // 열린 상세 패널이 `signal:new`를 받기 위한 구독 목록(소켓 핸들러는 이 훅이 하나만 건다)
   const signalListeners = useRef(new Set<(attemptId: string, signal: SignalDto) => void>());
   const subscribeSignals = useCallback((fn: (attemptId: string, signal: SignalDto) => void) => {
@@ -109,6 +111,8 @@ export function useDashboard(examId: string) {
       const e = snap.exam;
       if (isRecord(e) && typeof e.id === 'string') {
         setExam(e as unknown as DashboardExam);
+        // 교수자 PC 시계가 틀려도 남은 시간이 서버 기준이 되도록 오프셋을 기억한다
+        if (typeof e.serverNow === 'number') setClock(createServerClock(e.serverNow));
         if (typeof e.ready === 'number') setReady(e.ready);
         if (typeof e.total === 'number') setTotal(e.total);
       }
@@ -176,7 +180,7 @@ export function useDashboard(examId: string) {
     [approvals, all],
   );
 
-  return { exam, cards, allCards: all, total: total ?? exam?.total ?? null, ready, signals, subscribeSignals, pendingApprovals, networkIncident, sortBy, setSortBy, query, setQuery, socketDown, joinFailed, removeApproval, hasSnapshot: exam !== null };
+  return { exam, cards, allCards: all, total: total ?? exam?.total ?? null, ready, signals, subscribeSignals, clock, pendingApprovals, networkIncident, sortBy, setSortBy, query, setQuery, socketDown, joinFailed, removeApproval, hasSnapshot: exam !== null };
 }
 
 export type Dashboard = ReturnType<typeof useDashboard>;

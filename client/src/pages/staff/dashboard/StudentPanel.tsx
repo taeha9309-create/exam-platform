@@ -22,9 +22,12 @@ function remainingText(card: AttemptSummary, now: number): string {
 export function StudentPanel({
   card,
   subscribeSignals,
+  clock,
   onClose,
 }: {
   card: AttemptSummary;
+  /** 서버 시계(스냅샷 serverNow 보정) */
+  clock: { now(): number };
   subscribeSignals: (fn: (attemptId: string, signal: SignalDto) => void) => () => void;
   onClose: () => void;
 }) {
@@ -33,13 +36,13 @@ export function StudentPanel({
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState<SignalDto[]>([]);
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => clock.now());
   const [tries, setTries] = useState(0);
 
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
+    const id = setInterval(() => setNow(clock.now()), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [clock]);
 
   // 조회 응답보다 먼저 온 신호도 놓치지 않도록 구독은 조회와 별개로 먼저 건다.
   useEffect(() => {
