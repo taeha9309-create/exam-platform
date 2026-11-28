@@ -1,0 +1,192 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:36:09.125Z",
+  "scenario": "fullscreen-sidebar",
+  "trial": 3,
+  "entries": [
+    {
+      "t": 96668.3,
+      "wall": 1795865769125,
+      "kind": "start",
+      "detail": {
+        "browser": "Google Chrome 158",
+        "scenario": "fullscreen-sidebar",
+        "trial": 3
+      }
+    },
+    {
+      "t": 96668.3,
+      "wall": 1795865769125,
+      "kind": "screen",
+      "detail": {
+        "isExtended": false,
+        "source": "start"
+      }
+    },
+    {
+      "t": 97498,
+      "wall": 1795865769955,
+      "kind": "resize",
+      "detail": {
+        "prev": {
+          "innerWidth": 1920,
+          "outerWidth": 1920,
+          "innerHeight": 911,
+          "outerHeight": 1032
+        },
+        "next": {
+          "innerWidth": 1920,
+          "outerWidth": 1904,
+          "innerHeight": 1080,
+          "outerHeight": 1064
+        },
+        "sidebar": null
+      }
+    },
+    {
+      "t": 97498.1,
+      "wall": 1795865769955,
+      "kind": "fullscreenchange",
+      "detail": {
+        "fullscreen": true
+      }
+    },
+    {
+      "t": 97892.7,
+      "wall": 1795865770349,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 894,
+        "y": 94
+      }
+    },
+    {
+      "t": 97892.7,
+      "wall": 1795865770350,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 894,
+        "y": 94
+      }
+    },
+    {
+      "t": 97932,
+      "wall": 1795865770389,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 39
+      }
+    },
+    {
+      "t": 97965.7,
+      "wall": 1795865770422,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 938,
+        "y": 0
+      }
+    },
+    {
+      "t": 97965.8,
+      "wall": 1795865770423,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 938,
+        "y": 0
+      }
+    },
+    {
+      "t": 98051.3,
+      "wall": 1795865770508,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 86
+      }
+    },
+    {
+      "t": 98147.9,
+      "wall": 1795865770605,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 964,
+        "y": 30
+      }
+    },
+    {
+      "t": 98148,
+      "wall": 1795865770605,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 964,
+        "y": 30
+      }
+    },
+    {
+      "t": 98151.2,
+      "wall": 1795865770608,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 3
+      }
+    },
+    {
+      "t": 98151.3,
+      "wall": 1795865770608,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 964,
+        "y": 35
+      }
+    },
+    {
+      "t": 98151.3,
+      "wall": 1795865770608,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 964,
+        "y": 35
+      }
+    },
+    {
+      "t": 98181.2,
+      "wall": 1795865770638,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 30
+      }
+    },
+    {
+      "t": 98259.9,
+      "wall": 1795865770717,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 936,
+        "y": 90
+      }
+    },
+    {
+      "t": 98259.9,
+      "wall": 1795865770717,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 936,
+        "y": 90
+      }
+    },
+    {
+      "t": 98291,
+      "wall": 1795865770748,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 31
+      }
+    },
+    {
+      "t": 110183.1,
+      "wall": 1795865782640,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}

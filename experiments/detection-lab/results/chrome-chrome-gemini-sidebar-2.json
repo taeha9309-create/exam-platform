@@ -1,0 +1,164 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:30:26.233Z",
+  "scenario": "chrome-gemini-sidebar",
+  "trial": 2,
+  "entries": [
+    {
+      "t": 46315.8,
+      "wall": 1795865429648,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 1595,
+        "y": -1
+      }
+    },
+    {
+      "t": 46315.9,
+      "wall": 1795865429648,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 1595,
+        "y": -1
+      }
+    },
+    {
+      "t": 47359.7,
+      "wall": 1795865430692,
+      "kind": "blur",
+      "detail": {}
+    },
+    {
+      "t": 47359.8,
+      "wall": 1795865430692,
+      "kind": "leave",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 47359.8,
+      "wall": 1795865430692,
+      "kind": "signal",
+      "detail": {
+        "name": "BLUR"
+      }
+    },
+    {
+      "t": 47573.4,
+      "wall": 1795865430906,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 1258
+      }
+    },
+    {
+      "t": 47573.4,
+      "wall": 1795865430906,
+      "kind": "signal",
+      "detail": {
+        "name": "POINTER_LEAVE",
+        "severity": "INFO",
+        "durationMs": 1258
+      }
+    },
+    {
+      "t": 47685.7,
+      "wall": 1795865431018,
+      "kind": "resize",
+      "detail": {
+        "prev": {
+          "innerWidth": 1920,
+          "outerWidth": 1920,
+          "innerHeight": 911,
+          "outerHeight": 1032
+        },
+        "next": {
+          "innerWidth": 1510,
+          "outerWidth": 1920,
+          "innerHeight": 903,
+          "outerHeight": 1032
+        },
+        "sidebar": {
+          "type": "SIDEBAR_SUSPECT",
+          "deltaInner": 410
+        }
+      }
+    },
+    {
+      "t": 47685.8,
+      "wall": 1795865431018,
+      "kind": "signal",
+      "detail": {
+        "name": "SIDEBAR_SUSPECT",
+        "deltaInner": 410
+      }
+    },
+    {
+      "t": 48083,
+      "wall": 1795865431415,
+      "kind": "hasFocusPoll",
+      "detail": {
+        "hasFocus": false,
+        "driftMs": 5
+      }
+    },
+    {
+      "t": 48201.9,
+      "wall": 1795865431534,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 1518,
+        "y": 799
+      }
+    },
+    {
+      "t": 48202,
+      "wall": 1795865431534,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 1518,
+        "y": 799
+      }
+    },
+    {
+      "t": 51430,
+      "wall": 1795865434762,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 3228
+      }
+    },
+    {
+      "t": 51430.1,
+      "wall": 1795865434762,
+      "kind": "signal",
+      "detail": {
+        "name": "POINTER_LEAVE",
+        "severity": "WARN",
+        "durationMs": 3228
+      }
+    },
+    {
+      "t": 54741.5,
+      "wall": 1795865438074,
+      "kind": "focus",
+      "detail": {}
+    },
+    {
+      "t": 54741.6,
+      "wall": 1795865438074,
+      "kind": "return",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 54847.6,
+      "wall": 1795865438180,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:18:54.819Z",
+  "scenario": "fp-permission-popup",
+  "trial": 3,
+  "entries": [
+    {
+      "t": 207025.2,
+      "wall": 1795864751400,
+      "kind": "blur",
+      "detail": {}
+    },
+    {
+      "t": 207025.2,
+      "wall": 1795864751400,
+      "kind": "leave",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 207025.2,
+      "wall": 1795864751400,
+      "kind": "signal",
+      "detail": {
+        "name": "BLUR"
+      }
+    },
+    {
+      "t": 207076.3,
+      "wall": 1795864751451,
+      "kind": "hasFocusPoll",
+      "detail": {
+        "hasFocus": false,
+        "driftMs": 5
+      }
+    },
+    {
+      "t": 207856.7,
+      "wall": 1795864752232,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 447,
+        "y": 101
+      }
+    },
+    {
+      "t": 207856.7,
+      "wall": 1795864752232,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 447,
+        "y": 101
+      }
+    },
+    {
+      "t": 210611.2,
+      "wall": 1795864754986,
+      "kind": "focus",
+      "detail": {}
+    },
+    {
+      "t": 210611.2,
+      "wall": 1795864754986,
+      "kind": "return",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 210635.6,
+      "wall": 1795864755010,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 2779
+      }
+    },
+    {
+      "t": 210635.6,
+      "wall": 1795864755010,
+      "kind": "signal",
+      "detail": {
+        "name": "POINTER_LEAVE",
+        "severity": "INFO",
+        "durationMs": 2779
+      }
+    },
+    {
+      "t": 211070.1,
+      "wall": 1795864755445,
+      "kind": "hasFocusPoll",
+      "detail": {
+        "hasFocus": true,
+        "driftMs": -4
+      }
+    },
+    {
+      "t": 212578.1,
+      "wall": 1795864756953,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}

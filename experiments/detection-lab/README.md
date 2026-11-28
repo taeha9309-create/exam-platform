@@ -7,6 +7,9 @@ SPEC 5.2·5.6·8장의 "검증 필요" 감지 항목을 **Chrome·Edge에서 직
 브라우저 모듈은 `file://`로 열면 동작하지 않으므로 로컬 서버가 필요합니다.
 
 ```bash
+# 권장: 저장 서버(정적 파일 + 기록 정지 시 results/ 자동 저장, 회차 자동 증가)
+node experiments/detection-lab/serve.js 3300   # → http://localhost:3300/?scenario=tab-switch
+
 npx serve experiments/detection-lab      # → 표시된 주소(보통 http://localhost:3000)
 # 또는 Python이 있다면
 python -m http.server 3100 -d experiments/detection-lab   # → http://localhost:3100

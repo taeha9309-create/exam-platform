@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app';
 import { parsePort, parseTrustProxyHops } from './config';
+import { startConnectionMonitor } from './jobs/connectionMonitor';
 import { startDeadlineTicker } from './jobs/deadlineTicker';
 import { attachSocket } from './realtime/socket';
 
@@ -41,6 +42,8 @@ const io = attachSocket(httpServer, { trustProxy });
 
 // 마감 티커: 1초마다 마감이 지난 응시를 제출하고 끝난 시험을 종료한다(겹침 방지·예외 격리는 startDeadlineTicker).
 const ticker = startDeadlineTicker();
+// 연결 감시: 끊김·하트비트 갭·네트워크 장애 묶음(SPEC 5.5). 소켓이 붙기 전에 시작해 재시작 직후 유예(처음 본 시각부터 10초)가 적용된다.
+const monitor = startConnectionMonitor();
 
 httpServer.listen(port, () => {
   console.log(`서버 시작: http://localhost:${port}`);
@@ -48,8 +51,8 @@ httpServer.listen(port, () => {
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
-    // 티커를 멈추고(진행 중인 틱은 끝나기를 기다린다) io.close()로 소켓과 http 서버를 닫는다.
+    // 티커·연결 감시를 멈추고(진행 중인 틱은 끝나기를 기다린다) io.close()로 소켓과 http 서버를 닫는다.
     // io.close()는 소켓 연결을 모두 끊고 http 서버도 닫는다(소켓이 열려 있으면 httpServer.close만으로는 끝나지 않는다).
-    void ticker.stop().finally(() => void io.close(() => process.exit(0)));
+    void Promise.all([ticker.stop(), monitor.stop()]).finally(() => void io.close(() => process.exit(0)));
   });
 }
