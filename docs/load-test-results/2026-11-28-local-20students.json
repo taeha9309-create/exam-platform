@@ -11,9 +11,9 @@
   ],
   "signalsSent": 150,
   "signalLatencyMs": {
-    "p50": 10.3,
-    "p95": 16.8,
-    "max": 36,
+    "p50": 13.1,
+    "p95": 23,
+    "max": 43.7,
     "samples": 300
   },
   "reconnectedStudents": 4,
@@ -37,16 +37,16 @@
     "staffSockets": 2
   },
   "timingMs": {
-    "entry": 5266,
-    "total": 100474
+    "entry": 6967,
+    "total": 102339
   },
   "environment": {
     "node": "v24.20.0",
     "platform": "win32 x64",
     "cpu": "12th Gen Intel(R) Core(TM) i7-12700F x20",
     "memoryGB": 32,
-    "db": "PostgreSQL 16 (docker, 로컬)",
-    "server": "node 직접 실행(tsx, 같은 PC), 같은 PC에서 클라이언트 실행"
+    "db": "PostgreSQL exam_load @ localhost:5432",
+    "server": "http://localhost:3200 (로컬)"
   },
-  "measuredAt": "2026-11-28T14:52:51.152Z"
+  "measuredAt": "2026-11-28T14:59:48.475Z"
 }
