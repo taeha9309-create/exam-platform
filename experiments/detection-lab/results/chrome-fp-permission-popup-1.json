@@ -1,0 +1,124 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:16:29.407Z",
+  "scenario": "fp-permission-popup",
+  "trial": 1,
+  "entries": [
+    {
+      "t": 45032.7,
+      "wall": 1795864589408,
+      "kind": "start",
+      "detail": {
+        "browser": "Google Chrome 158",
+        "scenario": "fp-permission-popup",
+        "trial": 1
+      }
+    },
+    {
+      "t": 45032.9,
+      "wall": 1795864589408,
+      "kind": "screen",
+      "detail": {
+        "isExtended": false,
+        "source": "start"
+      }
+    },
+    {
+      "t": 46661,
+      "wall": 1795864591036,
+      "kind": "blur",
+      "detail": {}
+    },
+    {
+      "t": 46661.1,
+      "wall": 1795864591036,
+      "kind": "leave",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 46661.2,
+      "wall": 1795864591036,
+      "kind": "signal",
+      "detail": {
+        "name": "BLUR"
+      }
+    },
+    {
+      "t": 47074.1,
+      "wall": 1795864591449,
+      "kind": "hasFocusPoll",
+      "detail": {
+        "hasFocus": false,
+        "driftMs": -2
+      }
+    },
+    {
+      "t": 48660,
+      "wall": 1795864593035,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 447,
+        "y": 176
+      }
+    },
+    {
+      "t": 48660.1,
+      "wall": 1795864593035,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 447,
+        "y": 176
+      }
+    },
+    {
+      "t": 50358.1,
+      "wall": 1795864594733,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 1698
+      }
+    },
+    {
+      "t": 50358.2,
+      "wall": 1795864594733,
+      "kind": "signal",
+      "detail": {
+        "name": "POINTER_LEAVE",
+        "severity": "INFO",
+        "durationMs": 1698
+      }
+    },
+    {
+      "t": 50403.8,
+      "wall": 1795864594779,
+      "kind": "focus",
+      "detail": {}
+    },
+    {
+      "t": 50403.9,
+      "wall": 1795864594779,
+      "kind": "return",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 51078.9,
+      "wall": 1795864595454,
+      "kind": "hasFocusPoll",
+      "detail": {
+        "hasFocus": true,
+        "driftMs": 2
+      }
+    },
+    {
+      "t": 54467.2,
+      "wall": 1795864598842,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}

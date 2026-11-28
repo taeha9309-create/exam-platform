@@ -1,0 +1,62 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:36:38.307Z",
+  "scenario": "fullscreen-sidebar",
+  "trial": 5,
+  "entries": [
+    {
+      "t": 125850.5,
+      "wall": 1795865798307,
+      "kind": "start",
+      "detail": {
+        "browser": "Google Chrome 158",
+        "scenario": "fullscreen-sidebar",
+        "trial": 5
+      }
+    },
+    {
+      "t": 125850.5,
+      "wall": 1795865798307,
+      "kind": "screen",
+      "detail": {
+        "isExtended": false,
+        "source": "start"
+      }
+    },
+    {
+      "t": 126219.5,
+      "wall": 1795865798676,
+      "kind": "resize",
+      "detail": {
+        "prev": {
+          "innerWidth": 1920,
+          "outerWidth": 1920,
+          "innerHeight": 911,
+          "outerHeight": 1032
+        },
+        "next": {
+          "innerWidth": 1920,
+          "outerWidth": 1904,
+          "innerHeight": 1080,
+          "outerHeight": 1064
+        },
+        "sidebar": null
+      }
+    },
+    {
+      "t": 126219.6,
+      "wall": 1795865798676,
+      "kind": "fullscreenchange",
+      "detail": {
+        "fullscreen": true
+      }
+    },
+    {
+      "t": 128909.2,
+      "wall": 1795865801366,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}

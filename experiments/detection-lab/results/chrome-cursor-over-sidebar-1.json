@@ -1,0 +1,50 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:32:24.546Z",
+  "scenario": "cursor-over-sidebar",
+  "trial": 1,
+  "entries": [
+    {
+      "t": 9090.3,
+      "wall": 1795865551605,
+      "kind": "hasFocusPoll",
+      "detail": {
+        "hasFocus": true,
+        "driftMs": 6
+      }
+    },
+    {
+      "t": 10405.1,
+      "wall": 1795865552920,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 1515,
+        "y": 409
+      }
+    },
+    {
+      "t": 10405.3,
+      "wall": 1795865552920,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 1515,
+        "y": 409
+      }
+    },
+    {
+      "t": 10907.2,
+      "wall": 1795865553422,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 502
+      }
+    },
+    {
+      "t": 12142.4,
+      "wall": 1795865554657,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}

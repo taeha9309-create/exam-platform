@@ -1,0 +1,114 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:36:26.905Z",
+  "scenario": "fullscreen-sidebar",
+  "trial": 4,
+  "entries": [
+    {
+      "t": 114448.6,
+      "wall": 1795865786905,
+      "kind": "start",
+      "detail": {
+        "browser": "Google Chrome 158",
+        "scenario": "fullscreen-sidebar",
+        "trial": 4
+      }
+    },
+    {
+      "t": 114448.6,
+      "wall": 1795865786905,
+      "kind": "screen",
+      "detail": {
+        "isExtended": false,
+        "source": "start"
+      }
+    },
+    {
+      "t": 115300.3,
+      "wall": 1795865787757,
+      "kind": "resize",
+      "detail": {
+        "prev": {
+          "innerWidth": 1920,
+          "outerWidth": 1920,
+          "innerHeight": 911,
+          "outerHeight": 1032
+        },
+        "next": {
+          "innerWidth": 1920,
+          "outerWidth": 1904,
+          "innerHeight": 1080,
+          "outerHeight": 1064
+        },
+        "sidebar": null
+      }
+    },
+    {
+      "t": 115300.4,
+      "wall": 1795865787757,
+      "kind": "fullscreenchange",
+      "detail": {
+        "fullscreen": true
+      }
+    },
+    {
+      "t": 115725.8,
+      "wall": 1795865788183,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 939,
+        "y": 0
+      }
+    },
+    {
+      "t": 115725.9,
+      "wall": 1795865788183,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 939,
+        "y": 0
+      }
+    },
+    {
+      "t": 115731.7,
+      "wall": 1795865788188,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 6
+      }
+    },
+    {
+      "t": 115858.9,
+      "wall": 1795865788316,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 972,
+        "y": 21
+      }
+    },
+    {
+      "t": 115858.9,
+      "wall": 1795865788316,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 972,
+        "y": 21
+      }
+    },
+    {
+      "t": 115865.2,
+      "wall": 1795865788322,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 6
+      }
+    },
+    {
+      "t": 122939.1,
+      "wall": 1795865795396,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}

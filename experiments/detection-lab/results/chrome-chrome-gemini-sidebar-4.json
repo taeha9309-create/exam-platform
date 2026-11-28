@@ -1,0 +1,310 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:30:55.241Z",
+  "scenario": "chrome-gemini-sidebar",
+  "trial": 4,
+  "entries": [
+    {
+      "t": 71908.7,
+      "wall": 1795865455241,
+      "kind": "start",
+      "detail": {
+        "browser": "Google Chrome 158",
+        "scenario": "chrome-gemini-sidebar",
+        "trial": 4
+      }
+    },
+    {
+      "t": 71908.8,
+      "wall": 1795865455241,
+      "kind": "screen",
+      "detail": {
+        "isExtended": false,
+        "source": "start"
+      }
+    },
+    {
+      "t": 72571.6,
+      "wall": 1795865455904,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 1514,
+        "y": 19
+      }
+    },
+    {
+      "t": 72571.7,
+      "wall": 1795865455904,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 1514,
+        "y": 19
+      }
+    },
+    {
+      "t": 73263.7,
+      "wall": 1795865456596,
+      "kind": "blur",
+      "detail": {}
+    },
+    {
+      "t": 73263.7,
+      "wall": 1795865456596,
+      "kind": "leave",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 73263.7,
+      "wall": 1795865456596,
+      "kind": "signal",
+      "detail": {
+        "name": "BLUR"
+      }
+    },
+    {
+      "t": 73344.7,
+      "wall": 1795865456677,
+      "kind": "focus",
+      "detail": {}
+    },
+    {
+      "t": 73344.7,
+      "wall": 1795865456677,
+      "kind": "return",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 73355.7,
+      "wall": 1795865456688,
+      "kind": "resize",
+      "detail": {
+        "prev": {
+          "innerWidth": 1510,
+          "outerWidth": 1920,
+          "innerHeight": 903,
+          "outerHeight": 1032
+        },
+        "next": {
+          "innerWidth": 1920,
+          "outerWidth": 1920,
+          "innerHeight": 911,
+          "outerHeight": 1032
+        },
+        "sidebar": null
+      }
+    },
+    {
+      "t": 73807.6,
+      "wall": 1795865457140,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 1236
+      }
+    },
+    {
+      "t": 73807.7,
+      "wall": 1795865457140,
+      "kind": "signal",
+      "detail": {
+        "name": "POINTER_LEAVE",
+        "severity": "INFO",
+        "durationMs": 1236
+      }
+    },
+    {
+      "t": 74813.4,
+      "wall": 1795865458146,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 998,
+        "y": -1
+      }
+    },
+    {
+      "t": 74813.5,
+      "wall": 1795865458146,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 998,
+        "y": -1
+      }
+    },
+    {
+      "t": 75906,
+      "wall": 1795865459238,
+      "kind": "blur",
+      "detail": {}
+    },
+    {
+      "t": 75906,
+      "wall": 1795865459238,
+      "kind": "leave",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 75906.1,
+      "wall": 1795865459238,
+      "kind": "signal",
+      "detail": {
+        "name": "BLUR"
+      }
+    },
+    {
+      "t": 76013.4,
+      "wall": 1795865459346,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 1200
+      }
+    },
+    {
+      "t": 76013.4,
+      "wall": 1795865459346,
+      "kind": "signal",
+      "detail": {
+        "name": "POINTER_LEAVE",
+        "severity": "INFO",
+        "durationMs": 1200
+      }
+    },
+    {
+      "t": 76069.5,
+      "wall": 1795865459402,
+      "kind": "hasFocusPoll",
+      "detail": {
+        "hasFocus": false,
+        "driftMs": -2
+      }
+    },
+    {
+      "t": 76188,
+      "wall": 1795865459520,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 1539,
+        "y": 198
+      }
+    },
+    {
+      "t": 76188.2,
+      "wall": 1795865459521,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 1539,
+        "y": 198
+      }
+    },
+    {
+      "t": 76219.4,
+      "wall": 1795865459552,
+      "kind": "resize",
+      "detail": {
+        "prev": {
+          "innerWidth": 1920,
+          "outerWidth": 1920,
+          "innerHeight": 911,
+          "outerHeight": 1032
+        },
+        "next": {
+          "innerWidth": 1510,
+          "outerWidth": 1920,
+          "innerHeight": 903,
+          "outerHeight": 1032
+        },
+        "sidebar": {
+          "type": "SIDEBAR_SUSPECT",
+          "deltaInner": 410
+        }
+      }
+    },
+    {
+      "t": 76219.6,
+      "wall": 1795865459552,
+      "kind": "signal",
+      "detail": {
+        "name": "SIDEBAR_SUSPECT",
+        "deltaInner": 410
+      }
+    },
+    {
+      "t": 76252.6,
+      "wall": 1795865459585,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 64
+      }
+    },
+    {
+      "t": 76367.8,
+      "wall": 1795865459700,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 1510,
+        "y": 312
+      }
+    },
+    {
+      "t": 76367.9,
+      "wall": 1795865459700,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 1510,
+        "y": 312
+      }
+    },
+    {
+      "t": 79085.9,
+      "wall": 1795865462418,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 2718
+      }
+    },
+    {
+      "t": 79086,
+      "wall": 1795865462418,
+      "kind": "signal",
+      "detail": {
+        "name": "POINTER_LEAVE",
+        "severity": "INFO",
+        "durationMs": 2718
+      }
+    },
+    {
+      "t": 87033.6,
+      "wall": 1795865470366,
+      "kind": "focus",
+      "detail": {}
+    },
+    {
+      "t": 87033.7,
+      "wall": 1795865470366,
+      "kind": "return",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 87068.9,
+      "wall": 1795865470401,
+      "kind": "hasFocusPoll",
+      "detail": {
+        "hasFocus": true,
+        "driftMs": -3
+      }
+    },
+    {
+      "t": 87099.4,
+      "wall": 1795865470432,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}

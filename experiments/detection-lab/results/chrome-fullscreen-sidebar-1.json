@@ -1,0 +1,88 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:34:53.463Z",
+  "scenario": "fullscreen-sidebar",
+  "trial": 1,
+  "entries": [
+    {
+      "t": 21006.9,
+      "wall": 1795865693464,
+      "kind": "start",
+      "detail": {
+        "browser": "Google Chrome 158",
+        "scenario": "fullscreen-sidebar",
+        "trial": 1
+      }
+    },
+    {
+      "t": 21007.1,
+      "wall": 1795865693464,
+      "kind": "screen",
+      "detail": {
+        "isExtended": false,
+        "source": "start"
+      }
+    },
+    {
+      "t": 22597.1,
+      "wall": 1795865695054,
+      "kind": "resize",
+      "detail": {
+        "prev": {
+          "innerWidth": 1920,
+          "outerWidth": 1920,
+          "innerHeight": 911,
+          "outerHeight": 1032
+        },
+        "next": {
+          "innerWidth": 1920,
+          "outerWidth": 1904,
+          "innerHeight": 1080,
+          "outerHeight": 1064
+        },
+        "sidebar": null
+      }
+    },
+    {
+      "t": 22597.2,
+      "wall": 1795865695054,
+      "kind": "fullscreenchange",
+      "detail": {
+        "fullscreen": true
+      }
+    },
+    {
+      "t": 27377.8,
+      "wall": 1795865699834,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 981,
+        "y": 77
+      }
+    },
+    {
+      "t": 27377.8,
+      "wall": 1795865699835,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 981,
+        "y": 77
+      }
+    },
+    {
+      "t": 27397.3,
+      "wall": 1795865699854,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 20
+      }
+    },
+    {
+      "t": 29822.3,
+      "wall": 1795865702279,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}

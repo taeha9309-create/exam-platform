@@ -1,0 +1,367 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:11:34.575Z",
+  "scenario": "alt-tab",
+  "trial": 2,
+  "entries": [
+    {
+      "t": 24889.8,
+      "wall": 1795864294576,
+      "kind": "start",
+      "detail": {
+        "browser": "Google Chrome 158",
+        "scenario": "alt-tab",
+        "trial": 2
+      }
+    },
+    {
+      "t": 24889.8,
+      "wall": 1795864294576,
+      "kind": "screen",
+      "detail": {
+        "isExtended": false,
+        "source": "start"
+      }
+    },
+    {
+      "t": 25843.2,
+      "wall": 1795864295529,
+      "kind": "keydown",
+      "detail": {
+        "key": "Alt",
+        "repeat": false
+      }
+    },
+    {
+      "t": 25923.4,
+      "wall": 1795864295609,
+      "kind": "blur",
+      "detail": {}
+    },
+    {
+      "t": 25923.4,
+      "wall": 1795864295609,
+      "kind": "leave",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 25923.4,
+      "wall": 1795864295609,
+      "kind": "signal",
+      "detail": {
+        "name": "BLUR"
+      }
+    },
+    {
+      "t": 25953.6,
+      "wall": 1795864295640,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 938,
+        "y": 96
+      }
+    },
+    {
+      "t": 25953.7,
+      "wall": 1795864295640,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 938,
+        "y": 96
+      }
+    },
+    {
+      "t": 26048.2,
+      "wall": 1795864295734,
+      "kind": "visibilitychange",
+      "detail": {
+        "state": "hidden"
+      }
+    },
+    {
+      "t": 26048.3,
+      "wall": 1795864295734,
+      "kind": "leave",
+      "detail": {
+        "cause": "hidden"
+      }
+    },
+    {
+      "t": 26048.3,
+      "wall": 1795864295734,
+      "kind": "signal",
+      "detail": {
+        "name": "VISIBILITY_HIDDEN"
+      }
+    },
+    {
+      "t": 26509.1,
+      "wall": 1795864296195,
+      "kind": "hasFocusPoll",
+      "detail": {
+        "hasFocus": false,
+        "driftMs": 445
+      }
+    },
+    {
+      "t": 30814.4,
+      "wall": 1795864300500,
+      "kind": "focus",
+      "detail": {}
+    },
+    {
+      "t": 30814.4,
+      "wall": 1795864300500,
+      "kind": "return",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 30824.5,
+      "wall": 1795864300510,
+      "kind": "visibilitychange",
+      "detail": {
+        "state": "visible"
+      }
+    },
+    {
+      "t": 30824.5,
+      "wall": 1795864300510,
+      "kind": "return",
+      "detail": {
+        "cause": "hidden"
+      }
+    },
+    {
+      "t": 30825.2,
+      "wall": 1795864300511,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 4872
+      }
+    },
+    {
+      "t": 30825.3,
+      "wall": 1795864300511,
+      "kind": "signal",
+      "detail": {
+        "name": "POINTER_LEAVE",
+        "severity": "WARN",
+        "durationMs": 4872
+      }
+    },
+    {
+      "t": 31066.7,
+      "wall": 1795864300753,
+      "kind": "hasFocusPoll",
+      "detail": {
+        "hasFocus": true,
+        "driftMs": -452
+      }
+    },
+    {
+      "t": 31395.2,
+      "wall": 1795864301081,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 865,
+        "y": 915
+      }
+    },
+    {
+      "t": 31395.3,
+      "wall": 1795864301081,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 865,
+        "y": 915
+      }
+    },
+    {
+      "t": 31628,
+      "wall": 1795864301314,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 233
+      }
+    },
+    {
+      "t": 31879,
+      "wall": 1795864301565,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 1043,
+        "y": 912
+      }
+    },
+    {
+      "t": 31879.1,
+      "wall": 1795864301565,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 1043,
+        "y": 912
+      }
+    },
+    {
+      "t": 32866.7,
+      "wall": 1795864302553,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 988
+      }
+    },
+    {
+      "t": 32970.2,
+      "wall": 1795864302656,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 617,
+        "y": 911
+      }
+    },
+    {
+      "t": 32970.3,
+      "wall": 1795864302656,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 617,
+        "y": 911
+      }
+    },
+    {
+      "t": 33236.2,
+      "wall": 1795864302922,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 266
+      }
+    },
+    {
+      "t": 33557.9,
+      "wall": 1795864303244,
+      "kind": "keydown",
+      "detail": {
+        "key": "Alt",
+        "repeat": false
+      }
+    },
+    {
+      "t": 33680.7,
+      "wall": 1795864303367,
+      "kind": "blur",
+      "detail": {}
+    },
+    {
+      "t": 33680.8,
+      "wall": 1795864303367,
+      "kind": "leave",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 33680.8,
+      "wall": 1795864303367,
+      "kind": "signal",
+      "detail": {
+        "name": "BLUR"
+      }
+    },
+    {
+      "t": 33721,
+      "wall": 1795864303407,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 804,
+        "y": 677
+      }
+    },
+    {
+      "t": 33721.1,
+      "wall": 1795864303407,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 804,
+        "y": 677
+      }
+    },
+    {
+      "t": 34066.7,
+      "wall": 1795864303753,
+      "kind": "hasFocusPoll",
+      "detail": {
+        "hasFocus": false,
+        "driftMs": 0
+      }
+    },
+    {
+      "t": 35004.8,
+      "wall": 1795864304691,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 1284
+      }
+    },
+    {
+      "t": 35004.9,
+      "wall": 1795864304691,
+      "kind": "signal",
+      "detail": {
+        "name": "POINTER_LEAVE",
+        "severity": "INFO",
+        "durationMs": 1284
+      }
+    },
+    {
+      "t": 36054.2,
+      "wall": 1795864305740,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 822,
+        "y": 666
+      }
+    },
+    {
+      "t": 36054.3,
+      "wall": 1795864305740,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 822,
+        "y": 666
+      }
+    },
+    {
+      "t": 36130.8,
+      "wall": 1795864305817,
+      "kind": "focus",
+      "detail": {}
+    },
+    {
+      "t": 36130.8,
+      "wall": 1795864305817,
+      "kind": "return",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 36142.7,
+      "wall": 1795864305829,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 88
+      }
+    },
+    {
+      "t": 36728.5,
+      "wall": 1795864306414,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}

@@ -1,0 +1,203 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:40:18.925Z",
+  "scenario": "claude-extension-sidebar",
+  "trial": 4,
+  "entries": [
+    {
+      "t": 140865.7,
+      "wall": 1795866018926,
+      "kind": "start",
+      "detail": {
+        "browser": "Google Chrome 158",
+        "scenario": "claude-extension-sidebar",
+        "trial": 4
+      }
+    },
+    {
+      "t": 140865.8,
+      "wall": 1795866018926,
+      "kind": "screen",
+      "detail": {
+        "isExtended": false,
+        "source": "start"
+      }
+    },
+    {
+      "t": 141197.9,
+      "wall": 1795866019258,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 1545,
+        "y": 439
+      }
+    },
+    {
+      "t": 141198,
+      "wall": 1795866019258,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 1545,
+        "y": 439
+      }
+    },
+    {
+      "t": 143032.7,
+      "wall": 1795866021092,
+      "kind": "resize",
+      "detail": {
+        "prev": {
+          "innerWidth": 1534,
+          "outerWidth": 1920,
+          "innerHeight": 903,
+          "outerHeight": 1032
+        },
+        "next": {
+          "innerWidth": 1920,
+          "outerWidth": 1920,
+          "innerHeight": 911,
+          "outerHeight": 1032
+        },
+        "sidebar": null
+      }
+    },
+    {
+      "t": 144014.4,
+      "wall": 1795866022074,
+      "kind": "blur",
+      "detail": {}
+    },
+    {
+      "t": 144014.5,
+      "wall": 1795866022074,
+      "kind": "leave",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 144014.5,
+      "wall": 1795866022074,
+      "kind": "signal",
+      "detail": {
+        "name": "BLUR"
+      }
+    },
+    {
+      "t": 144127.3,
+      "wall": 1795866022187,
+      "kind": "hasFocusPoll",
+      "detail": {
+        "hasFocus": false,
+        "driftMs": -10
+      }
+    },
+    {
+      "t": 144132.6,
+      "wall": 1795866022192,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 2935
+      }
+    },
+    {
+      "t": 144132.6,
+      "wall": 1795866022192,
+      "kind": "signal",
+      "detail": {
+        "name": "POINTER_LEAVE",
+        "severity": "INFO",
+        "durationMs": 2935
+      }
+    },
+    {
+      "t": 144267.5,
+      "wall": 1795866022327,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 1747,
+        "y": 289
+      }
+    },
+    {
+      "t": 144267.6,
+      "wall": 1795866022327,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 1747,
+        "y": 289
+      }
+    },
+    {
+      "t": 144366,
+      "wall": 1795866022426,
+      "kind": "resize",
+      "detail": {
+        "prev": {
+          "innerWidth": 1920,
+          "outerWidth": 1920,
+          "innerHeight": 911,
+          "outerHeight": 1032
+        },
+        "next": {
+          "innerWidth": 1534,
+          "outerWidth": 1920,
+          "innerHeight": 903,
+          "outerHeight": 1032
+        },
+        "sidebar": {
+          "type": "SIDEBAR_SUSPECT",
+          "deltaInner": 386
+        }
+      }
+    },
+    {
+      "t": 144366.1,
+      "wall": 1795866022426,
+      "kind": "signal",
+      "detail": {
+        "name": "SIDEBAR_SUSPECT",
+        "deltaInner": 386
+      }
+    },
+    {
+      "t": 150047.3,
+      "wall": 1795866028107,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 5780
+      }
+    },
+    {
+      "t": 150047.3,
+      "wall": 1795866028107,
+      "kind": "signal",
+      "detail": {
+        "name": "POINTER_LEAVE",
+        "severity": "WARN",
+        "durationMs": 5780
+      }
+    },
+    {
+      "t": 151405.4,
+      "wall": 1795866029465,
+      "kind": "focus",
+      "detail": {}
+    },
+    {
+      "t": 151405.5,
+      "wall": 1795866029465,
+      "kind": "return",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 151495.1,
+      "wall": 1795866029555,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}

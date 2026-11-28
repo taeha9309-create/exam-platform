@@ -1,0 +1,115 @@
+{
+  "browser": "Google Chrome 158",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+  "startedAt": "2026-11-28T11:49:32.220Z",
+  "scenario": "ai-extension-read",
+  "trial": 2,
+  "entries": [
+    {
+      "t": 59949.3,
+      "wall": 1795866572221,
+      "kind": "start",
+      "detail": {
+        "browser": "Google Chrome 158",
+        "scenario": "ai-extension-read",
+        "trial": 2
+      }
+    },
+    {
+      "t": 59949.3,
+      "wall": 1795866572221,
+      "kind": "screen",
+      "detail": {
+        "isExtended": false,
+        "source": "start"
+      }
+    },
+    {
+      "t": 60263.4,
+      "wall": 1795866572535,
+      "kind": "mouseout-null",
+      "detail": {
+        "x": 1536,
+        "y": 546
+      }
+    },
+    {
+      "t": 60263.5,
+      "wall": 1795866572535,
+      "kind": "mouseleave",
+      "detail": {
+        "x": 1536,
+        "y": 546
+      }
+    },
+    {
+      "t": 60706.6,
+      "wall": 1795866572978,
+      "kind": "blur",
+      "detail": {}
+    },
+    {
+      "t": 60706.9,
+      "wall": 1795866572978,
+      "kind": "leave",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 60706.9,
+      "wall": 1795866572978,
+      "kind": "signal",
+      "detail": {
+        "name": "BLUR"
+      }
+    },
+    {
+      "t": 61086.7,
+      "wall": 1795866573358,
+      "kind": "hasFocusPoll",
+      "detail": {
+        "hasFocus": false,
+        "driftMs": 13
+      }
+    },
+    {
+      "t": 74988.8,
+      "wall": 1795866587260,
+      "kind": "mouseenter",
+      "detail": {
+        "durationMs": 14725
+      }
+    },
+    {
+      "t": 74988.9,
+      "wall": 1795866587260,
+      "kind": "signal",
+      "detail": {
+        "name": "POINTER_LEAVE",
+        "severity": "WARN",
+        "durationMs": 14725
+      }
+    },
+    {
+      "t": 75970.4,
+      "wall": 1795866588242,
+      "kind": "focus",
+      "detail": {}
+    },
+    {
+      "t": 75970.6,
+      "wall": 1795866588242,
+      "kind": "return",
+      "detail": {
+        "cause": "blur"
+      }
+    },
+    {
+      "t": 76067.5,
+      "wall": 1795866588339,
+      "kind": "stop",
+      "detail": {}
+    }
+  ]
+}
