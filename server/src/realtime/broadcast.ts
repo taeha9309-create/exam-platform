@@ -102,6 +102,11 @@ export const broadcast = {
     }
   },
 
+  /** 네트워크 장애 묶음(SPEC 5.5): 교수자 방에만 보낸다. 해제되면 null. */
+  networkIncident(examId: string, incident: { count: number; attemptIds: string[]; since: number } | null): void {
+    getIo().to(staffRoom(examId)).emit(EV.NETWORK_INCIDENT, incident);
+  },
+
   toStaff(examId: string, event: string, payload: unknown): void {
     getIo().to(staffRoom(examId)).emit(event, payload);
   },

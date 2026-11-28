@@ -8,6 +8,7 @@ import { Server, type Socket } from 'socket.io';
 import { authenticateStaff, STAFF_COOKIE } from '../auth/staffAuth';
 import { findAttemptByToken } from '../auth/studentSession';
 import { prisma } from '../db';
+import { studentSocketConnected, studentSocketDisconnected } from '../jobs/connectionMonitor';
 import { AppError } from '../errors';
 import { normalizeIpKey } from '../security/loginProtection';
 import { createRateLimiter } from '../security/rateLimit';
@@ -431,6 +432,11 @@ export function attachSocket(httpServer: HttpServer, options: AttachSocketOption
       attemptBuckets.set(data.attemptId, entry);
       attemptBucket = entry.bucket;
       const attemptId = data.attemptId;
+      // 연결 감시(jobs/connectionMonitor): 끊김·재연결을 장부에 알린다. 실패해도 연결 처리에는 영향이 없다.
+      if (!socket.disconnected) {
+        void studentSocketConnected(attemptId).catch((err) => console.error('재연결 기록 실패', err instanceof Error ? err.message : 'unknown'));
+        socket.once('disconnect', () => studentSocketDisconnected(attemptId));
+      }
       socket.once('disconnect', () => {
         const cur = attemptBuckets.get(attemptId);
         if (!cur) return;

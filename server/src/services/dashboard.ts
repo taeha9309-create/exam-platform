@@ -1,6 +1,7 @@
 import { Prisma, type AttemptState, type ExamStatus, type PrismaClient, type ProctorActionType, type Severity, type SignalSeverity, type SignalType } from '@prisma/client';
-import type { AttemptSummary } from '@exam/shared';
+import { NETWORK_INCIDENT_WINDOW_MS, type AttemptSummary } from '@exam/shared';
 import { prisma } from '../db';
+import { detectNetworkIncident } from '../domain/signals';
 import { attemptDeadline } from '../realtime/broadcast';
 
 /**
@@ -102,7 +103,39 @@ export interface DashboardSnapshot {
   exam: { id: string; title: string; status: ExamStatus; endsAt: number | null; lockNewEntry: boolean; serverNow: number; ready: number; total: number };
   attempts: AttemptSummary[];
   pendingApprovals: PendingApproval[];
-  networkIncident: { count: number; attemptIds: string[]; since: number } | null;
+  networkIncident: NetworkIncident | null;
+}
+
+export type NetworkIncident = { count: number; attemptIds: string[]; since: number };
+/** 네트워크 장애 판정의 분모·감시 대상 상태. 연결 감시(jobs/connectionMonitor)와 스냅샷이 같은 정의를 쓴다. */
+export const NETWORK_WATCH_STATES: AttemptState[] = ['ACTIVE', 'PAUSED'];
+export interface NetworkInput {
+  events: { attemptId: string; at: number }[];
+  total: number;
+}
+
+/**
+ * 진행 중(RUNNING) 시험별로 최근 NETWORK_INCIDENT_WINDOW_MS 안의 네트워크 신호(DISCONNECT·HEARTBEAT_GAP·SEQ_GAP)와 감시 대상 응시 수를 읽는다.
+ * 쿼리 2개(시험 수와 무관). examId를 주면 그 시험만. 신호가 없는 시험도 total과 함께 들어 있다.
+ */
+export async function loadNetworkInputs(now: Date, examId?: string, db: Db = prisma): Promise<Map<string, NetworkInput>> {
+  const from = new Date(now.getTime() - NETWORK_INCIDENT_WINDOW_MS);
+  const attemptWhere = { state: { in: NETWORK_WATCH_STATES }, exam: { status: 'RUNNING' as const, ...(examId ? { id: examId } : {}) } };
+  const signals = await db.signal.findMany({
+    where: { type: { in: ['DISCONNECT', 'HEARTBEAT_GAP', 'SEQ_GAP'] }, receivedAt: { gte: from, lte: now }, attempt: attemptWhere },
+    select: { attemptId: true, receivedAt: true, attempt: { select: { examId: true } } },
+  });
+  const totals = await db.attempt.groupBy({ by: ['examId'], where: attemptWhere, _count: { _all: true } });
+  const out = new Map<string, NetworkInput>();
+  for (const t of totals) out.set(t.examId, { events: [], total: t._count._all });
+  for (const s of signals) out.get(s.attempt.examId)?.events.push({ attemptId: s.attemptId, at: s.receivedAt.getTime() });
+  return out;
+}
+
+/** 한 시험의 현재 네트워크 장애 묶음(없으면 null). 스냅샷이 쓴다: 재접속한 교수자도 배너를 잃지 않는다. */
+export async function loadNetworkIncident(examId: string, now: Date, db: Db = prisma): Promise<NetworkIncident | null> {
+  const input = (await loadNetworkInputs(now, examId, db)).get(examId);
+  return input ? detectNetworkIncident(input.events, input.total, now.getTime()) : null;
 }
 
 const ATTEMPT_SELECT = {
@@ -182,7 +215,7 @@ export async function loadDashboardSnapshot(examId: string, db: Db = prisma): Pr
     exam: { id: exam.id, title: exam.title, status: exam.status, endsAt: exam.endsAt ? exam.endsAt.getTime() : null, lockNewEntry: exam.lockNewEntry, serverNow: now.getTime(), ready, total: roster.length },
     attempts,
     pendingApprovals,
-    networkIncident: null, // 네트워크 장애 묶음 판정은 계획 2 Task 5
+    networkIncident: await loadNetworkIncident(examId, now, db),
   };
 }
 
