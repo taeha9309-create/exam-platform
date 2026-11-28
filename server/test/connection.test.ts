@@ -450,4 +450,27 @@ describe('서버 신호 행 상한과 재연결 경쟁', () => {
     expect(await signalsOf(a!.id, 'DISCONNECT')).toHaveLength(0);
     expect(await signalsOf(a!.id, 'RECONNECT')).toHaveLength(1);
   });
+
+  it('SEQ_GAP이 500건 있어도 RECONNECT·DISCONNECT는 기록된다', async () => {
+    const fx = await fixture(7);
+    const [a, ...others] = await makeAttempts(fx.exam, 10);
+    await prisma.signal.createMany({ data: Array.from({ length: MAX_SERVER_SIGNALS_PER_ATTEMPT }, () => ({ attemptId: a!.id, type: 'SEQ_GAP' as const, severity: 'WARN' as const })) });
+    for (const o of others) await studentSocketConnected(o.id);
+    await studentSocketConnected(a!.id);
+    studentSocketDisconnected(a!.id);
+    advance(DISCONNECT_GRACE_MS + 1000);
+    for (const o of others) await beat(o.id);
+    await check();
+    await studentSocketConnected(a!.id);
+    expect(await signalsOf(a!.id, 'DISCONNECT')).toHaveLength(1);
+    expect(await signalsOf(a!.id, 'RECONNECT')).toHaveLength(1);
+  });
+
+  it('RECONNECT가 500건 있어도 하트비트 SEQ_GAP 저장은 영향받지 않는다', async () => {
+    const fx = await fixture();
+    const [a] = await makeAttempts(fx.exam, 1);
+    await seedServerSignals(a!.id, MAX_SERVER_SIGNALS_PER_ATTEMPT);
+    await recordHeartbeat(a!.id, 20, () => new Date(t));
+    expect(await signalsOf(a!.id, 'SEQ_GAP')).toHaveLength(1);
+  });
 });

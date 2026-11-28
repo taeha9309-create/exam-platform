@@ -28,11 +28,12 @@ export const SIGNAL_DURATION_MAX_MS = 3_600_000;
  */
 export const MAX_CLIENT_SIGNALS_PER_ATTEMPT = 2000;
 /**
- * 응시 하나가 저장하는 서버 전용 신호 행(seq 없는 DISCONNECT·RECONNECT·HEARTBEAT_GAP·SEQ_GAP·MULTI_MONITOR)의 상한.
+ * 응시 하나가 저장하는 서버 전용 신호 행 중 연결 감시가 만드는 DISCONNECT·RECONNECT·HEARTBEAT_GAP의 합산 상한(SEQ_GAP은 하트비트 경로 상한, MULTI_MONITOR는 상한 없음).
  * 연결↔종료를 반복해 RECONNECT 등이 무한히 쌓이는 것을 막는다. 넘으면 recordServerSignal은 저장도 알림도 하지 않는다.
  * 정상 학생의 끊김은 수십 회 수준이라 영향이 없다.
  */
 export const MAX_SERVER_SIGNALS_PER_ATTEMPT = 500;
+const CAPPED_SERVER_TYPES: SignalType[] = ['DISCONNECT', 'RECONNECT', 'HEARTBEAT_GAP'];
 /** 상한 초과를 이미 로그로 남긴 응시(로그 폭주 방지). 프로세스 메모리에만 있고 크기를 제한한다. */
 const capLogged = new Set<string>();
 /** seq는 PostgreSQL INT(32비트)다. */
@@ -308,8 +309,11 @@ export async function recordServerSignal(
     const cur = await lockAttempt(tx, attemptId);
     if (!cur || TERMINAL.has(cur.state)) return null;
     if (options.guard && !options.guard()) return null; // 잠금을 얻은 뒤 조건 재확인(호출자가 계산한 뒤 상황이 바뀌었을 수 있다)
-    const stored = await tx.signal.count({ where: { attemptId, seq: null }, take: MAX_SERVER_SIGNALS_PER_ATTEMPT });
-    if (stored >= MAX_SERVER_SIGNALS_PER_ATTEMPT) return null;
+    if (CAPPED_SERVER_TYPES.includes(type)) {
+      // 연결 감시가 만드는 세 종류만 센다. SEQ_GAP(하트비트 경로의 합산 상한이 따로 있다)이 쌓여도 끊김 탐지를 막지 못하게 한다.
+      const stored = await tx.signal.count({ where: { attemptId, type: { in: CAPPED_SERVER_TYPES } }, take: MAX_SERVER_SIGNALS_PER_ATTEMPT });
+      if (stored >= MAX_SERVER_SIGNALS_PER_ATTEMPT) return null;
+    }
     const signal = await insertServerSignal(tx, cur, type, meta, typeof now === 'function' ? now() : now, options.suppressSeverity === true);
     return { examId: cur.examId, signals: [signal] } satisfies Outcome;
   });
