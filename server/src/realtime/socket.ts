@@ -8,6 +8,7 @@ import { authenticateStaff, STAFF_COOKIE } from '../auth/staffAuth';
 import { findAttemptByToken } from '../auth/studentSession';
 import { prisma } from '../db';
 import { AppError } from '../errors';
+import { loadDashboardSnapshot } from '../services/dashboard';
 import { saveAnswer } from '../services/submission';
 import { attemptRoom, attemptStatePayload, setIo, staffRoom, studentsRoom } from './broadcast';
 
@@ -133,8 +134,12 @@ async function handleDashboardJoin(socket: Socket, payload: unknown, ack: unknow
     ]);
     if (!staff) return reply({ ok: false, code: 'UNAUTHORIZED' });
     if (!exam) return reply({ ok: false, code: 'NOT_FOUND' });
-    // 방 이름은 서버가 만든다. 스냅샷 ack는 계획 2에서 확장한다.
+    // 방 이름은 서버가 만든다. 방에 먼저 들어간 뒤 스냅샷을 읽는다: 읽은 이후의 변경은 방 이벤트로 받으므로 놓치는 틈이 없다.
     await socket.join(staffRoom(exam.id));
+    const snapshot = await loadDashboardSnapshot(exam.id);
+    if (!snapshot) return reply({ ok: false, code: 'NOT_FOUND' });
+    // 스냅샷은 이 소켓에만 보낸다(ack보다 먼저: 같은 연결에서 순서가 보장된다).
+    socket.emit(EV.DASHBOARD_SNAPSHOT, snapshot);
     reply({ ok: true });
   } catch {
     reply({ ok: false, code: 'INTERNAL' });

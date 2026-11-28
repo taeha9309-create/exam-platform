@@ -161,5 +161,6 @@ export async function submitAttempt(attemptId: string, reason: SubmitReason, now
     return submitInTx(tx, attemptId, reason, now);
   });
   if (changed) notify(() => broadcast.attemptState(attempt, attempt.exam));
+  if (changed) void broadcast.attemptUpdated(attempt.id);
   return attempt;
 }
