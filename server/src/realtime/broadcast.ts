@@ -47,6 +47,11 @@ export const broadcast = {
     getIo().to(attemptRoom(attempt.id)).emit(EV.ATTEMPT_STATE, attemptStatePayload(attempt, exam, locked));
   },
 
+  /** 감독관 경고(F-16): 그 응시의 소켓(들)에만 보낸다. message는 감독관이 쓴 사유 원문이며 클라이언트는 텍스트로만 렌더한다. */
+  proctorWarning(attemptId: string, message: string): void {
+    getIo().to(attemptRoom(attemptId)).emit(EV.PROCTOR_WARNING, { message });
+  },
+
   /** 대기실 인원: ready = 준비 완료(WAITING이고 동의+환경 점검 완료) 응시 수(SPEC F-10), total = 명단 인원. 학생 방과 교수자 방 모두에 보낸다. */
   async waitingCount(examId: string): Promise<void> {
     const [ready, total] = await Promise.all([

@@ -1,13 +1,16 @@
-import { VIOLATION_LIMIT } from '@exam/shared';
+import { EV, VIOLATION_LIMIT, type PasteMode } from '@exam/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api';
 import { t } from '../../copy/ko';
 import { drafts } from '../../student/session';
-import { type AnswerValue, type AutosaveSocket, codePointLength, MAX_TEXT_LENGTH, useAutosave } from '../../student/useAutosave';
+import { useSignalCollector } from '../../student/useSignalCollector';
+import { type AnswerValue, codePointLength, MAX_TEXT_LENGTH, useAutosave } from '../../student/useAutosave';
 import { getStudentExam, postSubmit, type StudentExam } from '../../student/studentApi';
 import { Dialog } from '../staff/staffUi';
 import styles from './student.module.css';
+import { FullscreenGate } from './FullscreenGate';
 import { errorCodeOf, studentErrorText } from './studentUi';
+import { WarningDialog } from './WarningDialog';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const formatClock = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -20,10 +23,22 @@ function formatRemaining(ms: number): string {
 const isAnswered = (v: AnswerValue | undefined) => !!v && ('choiceId' in v ? v.choiceId !== '' : v.text.trim() !== '');
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** 응시 화면이 쓰는 소켓: 자동 저장·신호 전송에 더해 서버 알림(payload 있는 이벤트)을 듣는다. */
+export interface ExamSocket {
+  connected: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on(event: string, handler: (payload: any) => void): unknown;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  off(event: string, handler: (payload: any) => void): unknown;
+  emit(event: string, payload: unknown): unknown;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  timeout(ms: number): { emit(event: string, payload: unknown, ack: (err: Error | null, res?: any) => void): unknown };
+}
+
 export interface ExamTakingProps {
   examCode: string;
   token: string;
-  socket: AutosaveSocket | null;
+  socket: ExamSocket | null;
   state: 'ACTIVE' | 'PAUSED';
   deadline: number | null;
   clock: { now(): number };
@@ -46,6 +61,60 @@ export function ExamTaking({ examCode, token, socket, state, deadline, clock, vi
   const submitRunning = useRef(false);
   const loading = useRef(false);
   const staleRef = useRef<() => void>(() => {});
+  const [fullscreen, setFullscreen] = useState(() => !!document.fullscreenElement);
+  const [counted, setCounted] = useState<{ count: number; label: string } | null>(null);
+  const [autoLocked, setAutoLocked] = useState(() => state === 'PAUSED' && violationCount > 0 && violationCount % VIOLATION_LIMIT === 0);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [pasteNotice, setPasteNotice] = useState(false);
+  const pasteTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const currentQuestionId = useRef<string | null>(null);
+
+  useEffect(() => {
+    const onChange = () => setFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+  useEffect(() => () => clearTimeout(pasteTimer.current), []);
+
+  // 서버 알림: 위반 집계(SPEC 5.7)와 감독관 경고(F-16)
+  useEffect(() => {
+    if (!socket) return;
+    const onViolation = (p: { count?: unknown; limit?: unknown; type?: unknown }) => {
+      if (typeof p?.count !== 'number') return;
+      const label = typeof p.type === 'string' ? (t.student.taking.violationLabels[p.type] ?? t.student.taking.violationLabelDefault) : t.student.taking.violationLabelDefault;
+      setCounted({ count: p.count, label });
+      const limit = typeof p.limit === 'number' && p.limit > 0 ? p.limit : VIOLATION_LIMIT;
+      if (p.count > 0 && p.count % limit === 0) setAutoLocked(true);
+    };
+    const onWarning = (p: { message?: unknown }) => {
+      const m = p?.message;
+      if (typeof m === 'string' && m !== '') setWarnings((w) => [...w, m]);
+    };
+    socket.on(EV.VIOLATION_COUNTED, onViolation);
+    socket.on(EV.PROCTOR_WARNING, onWarning);
+    return () => {
+      socket.off(EV.VIOLATION_COUNTED, onViolation);
+      socket.off(EV.PROCTOR_WARNING, onWarning);
+    };
+  }, [socket]);
+  useEffect(() => {
+    if (state === 'ACTIVE') setAutoLocked(false);
+  }, [state]);
+
+  useSignalCollector({
+    socket,
+    examCode,
+    enabled: state === 'ACTIVE',
+    heartbeatEnabled: true,
+    // 서버가 /api/student/exam 응답에 pasteMode를 싣는 것이 계약(없으면 기록만 한다)
+    pasteMode: (exam as (StudentExam & { pasteMode?: PasteMode }) | null)?.pasteMode ?? 'RECORD',
+    getQuestionId: () => currentQuestionId.current,
+    onPasteBlocked: () => {
+      setPasteNotice(true);
+      clearTimeout(pasteTimer.current);
+      pasteTimer.current = setTimeout(() => setPasteNotice(false), 5000);
+    },
+  });
 
   const autosave = useAutosave({ socket, examCode, enabled: state === 'ACTIVE', onStale: () => staleRef.current(), onNotActive: onRefresh });
   const { adopt, restore } = autosave;
@@ -161,6 +230,9 @@ export function ExamTaking({ examCode, token, socket, state, deadline, clock, vi
   };
 
   const q = questions[current];
+  currentQuestionId.current = q?.id ?? null;
+  const shownCount = Math.max(violationCount, counted?.count ?? 0);
+  const showGate = state === 'ACTIVE' && !fullscreen;
   const value = q ? values[q.id] : undefined;
   const savedText = autosave.pending ? t.student.taking.saving : autosave.savedAt ? t.student.taking.saved(formatClock(autosave.savedAt)) : null;
 
@@ -168,8 +240,18 @@ export function ExamTaking({ examCode, token, socket, state, deadline, clock, vi
     <div>
       <div className={styles.recording}>
         <span>{t.student.taking.recording}</span>
-        <span>{t.student.taking.violationCounter(violationCount, VIOLATION_LIMIT)}</span>
+        <span>{t.student.taking.violationCounter(shownCount, VIOLATION_LIMIT)}</span>
       </div>
+      {counted ? (
+        <p role="status" className={styles.notice}>
+          {t.student.taking.violationNotice(counted.count, VIOLATION_LIMIT, counted.label)}
+        </p>
+      ) : null}
+      {pasteNotice ? (
+        <p role="status" className={styles.notice}>
+          {t.student.taking.pasteBlocked}
+        </p>
+      ) : null}
       <main className={styles.page}>
         <div className={styles.row}>
           <span>{t.student.taking.remaining}</span>
@@ -186,8 +268,10 @@ export function ExamTaking({ examCode, token, socket, state, deadline, clock, vi
 
         {state === 'PAUSED' ? (
           <div role="alert" className={styles.lock}>
-            {t.student.taking.paused}
+            {autoLocked ? t.student.taking.autoLocked(VIOLATION_LIMIT) : t.student.taking.paused}
           </div>
+        ) : showGate ? (
+          <FullscreenGate />
         ) : loadError ? (
           <div>
             <p role="alert" className={styles.error}>
@@ -266,6 +350,8 @@ export function ExamTaking({ examCode, token, socket, state, deadline, clock, vi
           </p>
         ) : null}
       </main>
+
+      {warnings.length > 0 ? <WarningDialog key={warnings.length} message={warnings[0]!} onConfirm={() => setWarnings((w) => w.slice(1))} /> : null}
 
       {confirming ? (
         <Dialog title={t.student.taking.confirmTitle} onClose={() => (submitting ? undefined : setConfirming(false))}>

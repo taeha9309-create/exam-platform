@@ -111,6 +111,19 @@ export async function saveAnswer(attemptId: string, tokenHash: string, payload: 
 const EVENT_FOR: Record<SubmitReason, AttemptEvent> = { STUDENT: 'SUBMIT', TIMEOUT: 'TIMEOUT', EXAM_ENDED: 'EXAM_END' };
 
 /**
+ * 응시 하나의 객관식 답안을 채점한다(Answer.awardedPoints = gradeMcq). 서술형은 건드리지 않는다.
+ * 제출(submitInTx)과 감독관 강제 종료(TERMINATE)가 같은 규칙을 쓰도록 분리했다. 응시 행을 잠근 트랜잭션 안에서 호출한다.
+ */
+export async function gradeMcqAnswers(tx: Tx, attemptId: string): Promise<void> {
+  const answers = await tx.answer.findMany({ where: { attemptId }, include: { question: true } });
+  for (const answer of answers) {
+    if (answer.question.type !== 'MCQ' || answer.question.correctChoiceId === null) continue;
+    const points = gradeMcq({ points: answer.question.points, correctChoiceId: answer.question.correctChoiceId }, answer.choiceId);
+    await tx.answer.update({ where: { id: answer.id }, data: { awardedPoints: points } });
+  }
+}
+
+/**
  * 트랜잭션 안에서 응시 하나를 제출 처리한다(상태 전이 + submittedAt·submitReason + 객관식 채점).
  * 응시 행을 잠근 뒤 다시 읽으므로 같은 응시의 저장·다른 제출과 직렬화된다. 이미 종착이면 아무것도 바꾸지 않는다(멱등).
  * TIMEOUT은 잠근 뒤에도 마감이 지났을 때만 적용한다(추가 시간이 그 사이 부여된 경우를 지킨다).
@@ -130,12 +143,7 @@ export async function submitInTx(tx: Tx, attemptId: string, reason: SubmitReason
   }
 
   const next = nextState(current.state, EVENT_FOR[reason], { ready: current.consentAt !== null && current.envCheckedAt !== null, examRunning: current.exam.status === 'RUNNING' });
-  const answers = await tx.answer.findMany({ where: { attemptId }, include: { question: true } });
-  for (const answer of answers) {
-    if (answer.question.type !== 'MCQ' || answer.question.correctChoiceId === null) continue;
-    const points = gradeMcq({ points: answer.question.points, correctChoiceId: answer.question.correctChoiceId }, answer.choiceId);
-    await tx.answer.update({ where: { id: answer.id }, data: { awardedPoints: points } });
-  }
+  await gradeMcqAnswers(tx, attemptId);
   const attempt = await tx.attempt.update({
     where: { id: attemptId },
     data: { state: next, submittedAt: now, submitReason: reason },

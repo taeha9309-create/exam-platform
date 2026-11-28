@@ -36,10 +36,20 @@ export const session = {
       // 무시
     }
   },
-  /** 토큰과 그 시험의 모든 미저장 초안을 지운다(제출·세션 폐기·안내 화면). */
+  /** 신호 큐와 seq를 지운다(공용 PC에서 이전 응시자의 미전송 신호가 섞이지 않게). 키는 signalQueue.ts의 `exam:{code}:seq`·`:signalQueue`. */
+  clearSignals(examCode: string): void {
+    try {
+      store()?.removeItem(`exam:${examCode}:seq`);
+      store()?.removeItem(`exam:${examCode}:signalQueue`);
+    } catch {
+      // 무시
+    }
+  },
+  /** 토큰과 그 시험의 모든 미저장 초안·신호 큐를 지운다(제출·세션 폐기·안내 화면). */
   clearAll(examCode: string): void {
     session.clear(examCode);
     drafts.clearAll(examCode);
+    session.clearSignals(examCode);
   },
 };
 

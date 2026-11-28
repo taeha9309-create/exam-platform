@@ -1,8 +1,9 @@
 // 학생 신호 큐(SPEC 5.2). 하트비트·신호가 하나의 seq 카운터를 공유하고, 끊긴 동안 쌓았다가 재연결 시 seq 순서대로 한 건씩 보낸다.
 // seq와 미전송 큐는 localStorage에 보관해 새로고침 뒤에도 이어진다. 저장소 접근은 모두 try/catch로 감싸고, 실패하면 메모리로만 동작한다.
 
-// Task 1 병합 후 shared의 ClientSignalType으로 교체한다(이름·값 동일).
-export type ClientSignalType = 'LEAVE' | 'LEAVE_START' | 'FULLSCREEN_EXIT' | 'PASTE' | 'DROP';
+import type { ClientSignalType } from '@exam/shared';
+
+export type { ClientSignalType };
 /** 'HB'는 하트비트(hb 이벤트). 같은 seq 카운터와 큐를 공유한다. */
 export type QueueMsgType = ClientSignalType | 'HB';
 

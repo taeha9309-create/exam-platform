@@ -17,17 +17,20 @@ vi.mock('../../student/studentApi', async (orig) => ({
 }));
 
 type Handler = (...args: unknown[]) => void;
-const handlers = new Map<string, Handler>();
+const handlers = new Map<string, Handler[]>();
 type Ack = (err: Error | null, res?: { ok: boolean; savedAt?: string; code?: string }) => void;
 const saves: { payload: Record<string, unknown>; ack: Ack }[] = [];
 const fakeSocket = {
   connected: true,
+  active: false,
+  emit: vi.fn(),
   on: vi.fn((ev: string, h: Handler) => {
-    handlers.set(ev, h);
+    handlers.set(ev, [...(handlers.get(ev) ?? []), h]);
     return fakeSocket;
   }),
-  off: vi.fn((ev: string) => {
-    handlers.delete(ev);
+  off: vi.fn((ev: string, h?: Handler) => {
+    if (h) handlers.set(ev, (handlers.get(ev) ?? []).filter((x) => x !== h));
+    else handlers.delete(ev);
     return fakeSocket;
   }),
   connect: vi.fn(),
@@ -47,7 +50,7 @@ import * as api from '../../student/studentApi';
 import { StudentFlow } from './StudentFlow';
 
 const CODE = 'ABCD2345';
-const serverEmit = (ev: string, payload?: unknown) => act(() => handlers.get(ev)!(payload));
+const serverEmit = (ev: string, payload?: unknown) => act(() => (handlers.get(ev) ?? []).forEach((h) => h(payload)));
 const flush = () => act(async () => void (await vi.advanceTimersByTimeAsync(0)));
 
 function view(over: Partial<api.AttemptView> = {}): api.AttemptView {
@@ -76,11 +79,14 @@ beforeEach(() => {
   handlers.clear();
   saves.length = 0;
   fakeSocket.connected = true;
+  // 응시 화면은 전체화면일 때만 문항을 그린다. 환경 점검 describe에서는 직접 지운다.
+  Object.defineProperty(document, 'fullscreenElement', { value: document.documentElement, configurable: true });
   vi.mocked(api.getPublicExam).mockResolvedValue({ title: '기말 시험', status: 'OPEN' });
   Object.defineProperty(navigator, 'userAgentData', { value: { brands: [{ brand: 'Google Chrome' }] }, configurable: true });
 });
 afterEach(() => {
   Reflect.deleteProperty(navigator, 'userAgentData');
+  Reflect.deleteProperty(document, 'fullscreenElement');
   cleanup();
   vi.useRealTimers();
   vi.resetAllMocks();
@@ -355,6 +361,7 @@ describe('소켓 이벤트', () => {
 
 describe('환경 점검', () => {
   beforeEach(() => {
+    Reflect.deleteProperty(document, 'fullscreenElement');
     session.set(CODE, 'tok');
     vi.mocked(api.getAttempt).mockResolvedValue(view({ needs: { consent: false, env: true } }));
   });
@@ -620,5 +627,71 @@ describe('응시 화면', () => {
     goto(2);
     fireEvent.change(await essay(), { target: { value: '오프라인 입력' } });
     expect(drafts.load(CODE, 'q2')).toEqual({ rev: 1, text: '오프라인 입력' });
+  });
+});
+
+describe('소켓 재연결과 신호 저장소 정리', () => {
+  beforeEach(() => session.set(CODE, 'tok'));
+  const seedSignals = (code = CODE) => {
+    localStorage.setItem(`exam:${code}:seq`, '9');
+    localStorage.setItem(`exam:${code}:signalQueue`, '[]');
+  };
+
+  it('connect_error: 세션이 유효하면 백오프 뒤 직접 다시 연결한다', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.mocked(api.getAttempt).mockResolvedValue(view());
+    renderFlow();
+    await flush();
+    fakeSocket.connected = false;
+    serverEmit('connect_error', new Error('x'));
+    await flush();
+    expect(fakeSocket.connect).not.toHaveBeenCalled();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(1000)));
+    expect(fakeSocket.connect).toHaveBeenCalledTimes(1);
+    // 다시 실패하면 간격이 2초로 늘어난다
+    serverEmit('connect_error', new Error('x'));
+    await flush();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(1999)));
+    expect(fakeSocket.connect).toHaveBeenCalledTimes(1);
+    await act(async () => void (await vi.advanceTimersByTimeAsync(1)));
+    expect(fakeSocket.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it('connect_error: 세션이 폐기됐으면(401) 재연결하지 않고 입장 화면으로 돌아간다', async () => {
+    vi.mocked(api.getAttempt).mockResolvedValueOnce(view());
+    renderFlow();
+    await screen.findByRole('heading', { name: t.student.waiting.title });
+    vi.mocked(api.getAttempt).mockRejectedValue(new ApiError(401, 'UNAUTHORIZED'));
+    fakeSocket.connected = false;
+    serverEmit('connect_error', new Error('x'));
+    expect(await screen.findByLabelText(t.student.entry.studentNo)).toBeTruthy();
+    expect(session.get(CODE)).toBeNull();
+    expect(fakeSocket.connect).not.toHaveBeenCalled();
+  });
+
+  it('제출되면 신호 seq·큐를 지운다', async () => {
+    vi.mocked(api.getAttempt).mockResolvedValue(view());
+    renderFlow();
+    await screen.findByRole('heading', { name: t.student.waiting.title });
+    seedSignals();
+    serverEmit('attempt:state', view({ state: 'SUBMITTED', serverNow: Date.now() + 1000 }));
+    await waitFor(() => expect(localStorage.getItem(`exam:${CODE}:seq`)).toBeNull());
+    expect(localStorage.getItem(`exam:${CODE}:signalQueue`)).toBeNull();
+  });
+
+  it('새 응시를 시작(세션 없음 → 본인 확인)하면 이전 응시자의 신호 큐를 지운다', async () => {
+    session.clear(CODE);
+    seedSignals();
+    vi.mocked(api.postEntry).mockResolvedValue({ name: '홍길동' });
+    vi.mocked(api.postConfirm).mockResolvedValue({ sessionToken: 'tok-2', attempt: { id: 'a1', ...view() } });
+    vi.mocked(api.getAttempt).mockResolvedValue(view());
+    renderFlow();
+    fireEvent.change(await screen.findByLabelText(t.student.entry.studentNo), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText(t.student.entry.passcode), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: t.student.entry.submit }));
+    fireEvent.click(await screen.findByRole('button', { name: t.student.confirm.yes }));
+    await screen.findByRole('heading', { name: t.student.waiting.title });
+    expect(localStorage.getItem(`exam:${CODE}:seq`)).toBeNull();
+    expect(localStorage.getItem(`exam:${CODE}:signalQueue`)).toBeNull();
   });
 });
